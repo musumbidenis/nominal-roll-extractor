@@ -64,13 +64,10 @@ _CAT_FILL    = PatternFill("solid", fgColor="D9D9D9")
 _PRAC_FILL   = PatternFill("solid", fgColor="FBE4D5")
 _UNLOCKED    = Protection(locked=False)
 
-_CTR    = Alignment(horizontal="center", vertical="center", wrap_text=True)
-_LFT    = Alignment(horizontal="left",   vertical="center", wrap_text=True)
-_LFT_S  = Alignment(horizontal="left",   vertical="center")
-_LFT_T  = Alignment(horizontal="left",   vertical="top",    wrap_text=True)
-_LFT_ST = Alignment(horizontal="left",   vertical="top")
-_LFT_B  = Alignment(horizontal="left",   vertical="bottom", wrap_text=True)
-_LFT_SB = Alignment(horizontal="left",   vertical="bottom")
+_CTR = Alignment(horizontal="center", vertical="center", wrap_text=True)
+_LFT = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+_LFT_T = Alignment(horizontal="left", vertical="top",    wrap_text=True)
+_LFT_B = Alignment(horizontal="left", vertical="bottom", wrap_text=True)
 
 
 def _f(bold=False, size=12, color="000000"):
@@ -174,7 +171,7 @@ def _build_unit_sheet(ws, data: dict, unit: dict):
 
     # ── Row 6 : reference ─────────────────────────────────────────────────────
     ws.merge_cells("A6:L6")
-    _set(ws, "A6", value="CAMS/2", font=_f(bold=True, size=12), align=_LFT_S)
+    _set(ws, "A6", value="CAMS/2", font=_f(bold=True, size=12), align=_LFT)
 
     # ── Row 7 : blue section title ────────────────────────────────────────────
     ws.merge_cells("A7:L7")
@@ -186,28 +183,28 @@ def _build_unit_sheet(ws, data: dict, unit: dict):
     ws.merge_cells("A8:D8")
     ws.merge_cells("E8:L8")
     ws["A8"].value     = _rich("Assessment Center Code:   ", centre_code)
-    ws["A8"].alignment = _LFT_T
+    ws["A8"].alignment = _LFT
     ws["E8"].value     = _rich("Assessment Center Name:   ", centre_name)
-    ws["E8"].alignment = _LFT_B
+    ws["E8"].alignment = _LFT
 
-    # ── Row 9 : Course Code | Course Title ────────────────────────────────────
+    # ── Row 9 : Course Title | Course Code ────────────────────────────────────
     ws.merge_cells("A9:D9")
     ws.merge_cells("E9:L9")
-    ws["A9"].value     = _rich("Course Code:   ", "")
-    ws["A9"].alignment = _LFT_ST
-    ws["E9"].value     = _rich("Course Title:   ", course_full)
-    ws["E9"].alignment = _LFT_B if len(course_full) > 44 else _LFT_T
+    ws["A9"].value     = _rich("Course Title:   ", course_full)
+    ws["A9"].alignment = _LFT
+    ws["E9"].value     = _rich("Course Code:   ", "")
+    ws["E9"].alignment = _LFT
 
-    # ── Row 10 : Unit Code | Unit Title | Assessment Series ───────────────────
+    # ── Row 10 : Unit Title | Unit Code | Assessment Series ───────────────────
     ws.merge_cells("A10:D10")
     ws.merge_cells("E10:H10")
     ws.merge_cells("I10:L10")
-    ws["A10"].value     = _rich("Unit Code:   ", unit_code)
-    ws["A10"].alignment = _LFT_T
-    ws["E10"].value     = _rich("Unit Title:   ", unit_name)
-    ws["E10"].alignment = _LFT_B
+    ws["A10"].value     = _rich("Unit Title:   ", unit_name)
+    ws["A10"].alignment = _LFT
+    ws["E10"].value     = _rich("Unit Code:   ", unit_code)
+    ws["E10"].alignment = _LFT
     ws["I10"].value     = _rich("Assessment Series:   ", series)
-    ws["I10"].alignment = _LFT_B
+    ws["I10"].alignment = _LFT
 
     # ── Row 11 : blank spacing row ────────────────────────────────────────────
     for c in range(1, 13):
@@ -254,7 +251,7 @@ def _build_unit_sheet(ws, data: dict, unit: dict):
         ws.row_dimensions[r].height = 28.0
 
         ws.cell(row=r, column=1, value=cand["sn"]).alignment           = _CTR
-        ws.cell(row=r, column=2, value=cand["reg_no"]).alignment       = _LFT_S
+        ws.cell(row=r, column=2, value=cand["reg_no"]).alignment       = _LFT
         ws.cell(row=r, column=3,
                 value=cand.get("admission_no", "")).alignment          = _LFT_S
         ws.cell(row=r, column=4, value=cand["name"]).alignment         = _LFT_S
@@ -293,7 +290,7 @@ def _build_unit_sheet(ws, data: dict, unit: dict):
         cell           = ws.cell(row=prepared_row, column=col)
         cell.value     = label
         cell.font      = _f(bold=True, size=12)
-        cell.alignment = _LFT_S
+        cell.alignment = _LFT
 
     for merge, col, label in (
         (f"A{approved_row}:C{approved_row}", 1, "Approved by:"),

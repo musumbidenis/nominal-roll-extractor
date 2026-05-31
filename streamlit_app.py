@@ -10,6 +10,7 @@ Requires: streamlit, pdfplumber, openpyxl
 
 import io
 import os
+import re
 import tempfile
 import zipfile
 from datetime import datetime
@@ -268,6 +269,10 @@ def _folder_for(unit: dict) -> str:
     return "Re-Assessment" if rt.lower().startswith("re") else "Assessment"
 
 
+def _safe_folder(name: str) -> str:
+    return re.sub(r'[\\/:*?"<>|]', "_", (name or "Unknown").strip()) or "Unknown"
+
+
 def _gen_zip(data: dict) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -275,7 +280,8 @@ def _gen_zip(data: dict) -> bytes:
             data["units"], build_marksheet_per_unit(data)
         ):
             folder = _folder_for(unit)
-            zf.writestr(f"{folder}/{filename}", file_bytes)
+            course = _safe_folder(unit.get("course_name") or "Unknown Course")
+            zf.writestr(f"{folder}/{course}/{filename}", file_bytes)
     return buf.getvalue()
 
 

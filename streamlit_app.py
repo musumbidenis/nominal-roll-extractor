@@ -1,0 +1,552 @@
+#!/usr/bin/env python3
+"""
+streamlit_app.py — Web UI for the TVET CDACC Nominal Roll → Marksheet tool.
+
+Run locally:
+    streamlit run streamlit_app.py
+
+Requires: streamlit, pdfplumber, openpyxl
+"""
+
+import io
+import os
+import tempfile
+import zipfile
+from datetime import datetime
+
+import streamlit as st
+
+from extract_nominal import extract
+from marksheet_excel import build_marksheet_per_unit, build_marksheet_workbook
+
+# ── Page config ───────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="Nominal Roll → Marksheet",
+    page_icon="📝",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
+_VERSION = "v1.0"
+
+# ── CSS ───────────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+/* ── Hide Streamlit chrome ──────────────────────────────────────────────── */
+#MainMenu, footer,
+[data-testid="stDeployButton"],
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+[data-testid="stStatusWidget"],
+[data-testid="stAppCreatorBadge"],
+.viewerBadge_container__r5tak,
+.viewerBadge_link__qRIco,
+iframe[title="st_app_creator_badge"] { display: none !important; }
+a[href*="streamlit.io"]              { display: none !important; }
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.block-container {
+    padding-top: 0 !important;
+    padding-bottom: 2rem;
+    max-width: 1150px;
+    overflow-x: hidden;
+}
+
+/* ── App header ─────────────────────────────────────────────────────────── */
+.app-header {
+    background: linear-gradient(135deg, #1a252f 0%, #2c3e50 100%);
+    padding: 14px 26px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-left: -5rem;
+    margin-right: -5rem;
+    margin-bottom: 1.4rem;
+}
+.app-header h1 {
+    margin: 0; padding: 0;
+    font-size: 1.3rem; font-weight: 700;
+    color: #fff; letter-spacing: -0.2px;
+}
+.app-header .ver {
+    font-size: 0.7rem;
+    color: rgba(255,255,255,0.45);
+    align-self: flex-start;
+    margin-top: 3px;
+    white-space: nowrap;
+}
+
+/* ── Section label ──────────────────────────────────────────────────────── */
+.sec-lbl {
+    font-size: 0.67rem; font-weight: 700;
+    letter-spacing: 1px; text-transform: uppercase;
+    color: #6B7280; margin: 0 0 7px; padding: 0;
+}
+
+/* ── Metric cards ───────────────────────────────────────────────────────── */
+.metrics-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 0.9rem;
+}
+.metric-card {
+    flex: 1 1 0;
+    min-width: 110px;
+    background: #F8FAFB;
+    border: 1px solid rgba(0,0,0,0.07);
+    border-radius: 8px;
+    padding: 13px 14px 11px;
+}
+.metric-card .num {
+    font-size: 1.9rem; font-weight: 800;
+    line-height: 1.1; margin-bottom: 5px;
+}
+.metric-card .lbl {
+    font-size: 0.66rem; font-weight: 600;
+    letter-spacing: 0.5px; text-transform: uppercase;
+    color: #6B7280; line-height: 1.3;
+}
+
+/* ── Activity panel ─────────────────────────────────────────────────────── */
+.act-header {
+    display: flex; align-items: center;
+    justify-content: space-between; margin-bottom: 8px;
+}
+.act-title { font-size: 0.88rem; font-weight: 700; color: #111827; }
+.badge-done {
+    background: #D1FAE5; color: #065F46;
+    font-size: 0.67rem; font-weight: 700;
+    padding: 2px 9px; border-radius: 12px; letter-spacing: 0.3px;
+}
+.badge-wait {
+    background: #F3F4F6; color: #6B7280;
+    font-size: 0.67rem; font-weight: 700;
+    padding: 2px 9px; border-radius: 12px;
+}
+.log-box {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.78rem;
+    background: #FAFAFA;
+    border: 1px solid rgba(0,0,0,0.07);
+    border-radius: 6px;
+    padding: 10px 13px;
+    max-height: 230px;
+    overflow-y: auto;
+    line-height: 1.7;
+    margin-top: 6px;
+}
+
+/* ── Export panel ───────────────────────────────────────────────────────── */
+.export-title {
+    font-size: 0.93rem; font-weight: 700;
+    color: #111827; margin: 0 0 2px;
+}
+.export-caption {
+    font-size: 0.75rem; color: #6B7280;
+    margin: 0 0 10px; line-height: 1.4;
+}
+.fn-label {
+    font-size: 0.67rem; font-weight: 600;
+    letter-spacing: 0.5px; text-transform: uppercase;
+    color: #6B7280; margin: 8px 0 3px;
+}
+.stDownloadButton > button {
+    width: 100% !important;
+    font-weight: 600 !important;
+    border-radius: 6px !important;
+}
+[data-testid="stVerticalBlockBorderWrapper"] { border-radius: 10px !important; }
+
+/* ── Dark mode ──────────────────────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+    .sec-lbl    { color: #9CA3AF; }
+    .metric-card { background: #1E2530; border-color: rgba(255,255,255,0.08); }
+    .metric-card .lbl { color: #9CA3AF; }
+    .act-title  { color: #F3F4F6; }
+    .badge-done { background: #064E3B; color: #6EE7B7; }
+    .badge-wait { background: #374151; color: #9CA3AF; }
+    .log-box { background: #161B22; border-color: rgba(255,255,255,0.08); }
+    .export-title   { color: #F3F4F6; }
+    .export-caption { color: #9CA3AF; }
+    .fn-label       { color: #9CA3AF; }
+}
+
+/* ── Responsive: tablet ─────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .app-header { margin-left: -2.5rem; margin-right: -2.5rem; }
+    .metric-card .num { font-size: 1.6rem; }
+}
+
+/* ── Responsive: mobile ─────────────────────────────────────────────────── */
+@media (max-width: 576px) {
+    .app-header { margin-left: -1rem; margin-right: -1rem; padding: 10px 14px; }
+    .app-header h1 { font-size: 1.05rem; }
+    .metrics-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .metric-card { min-width: unset; padding: 10px 11px 9px; }
+    .metric-card .num { font-size: 1.45rem; }
+    [data-testid="stHorizontalBlock"] { flex-direction: column !important; }
+    [data-testid="stColumn"] {
+        width: 100% !important; min-width: 100% !important;
+        flex: 1 0 100% !important;
+    }
+    .log-box { max-height: 160px; font-size: 0.74rem; }
+    .sec-lbl { margin-bottom: 5px; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ── Colour palette ────────────────────────────────────────────────────────────
+_C = {
+    "primary": "#2c3e50",
+    "info":    "#3498db",
+    "success": "#18bc9c",
+    "warning": "#f39c12",
+    "danger":  "#e74c3c",
+}
+
+_LOG_COLORS = {
+    "info":    "#999999", "step":    "#1565C0", "found":   "#2E7D32",
+    "success": "#1B5E20", "warn":    "#E65100", "error":   "#B71C1C",
+}
+_LOG_ICONS = {
+    "info": "    ", "step": " >> ", "found": " +  ",
+    "success": " ✓  ", "warn": " !  ", "error": " ✗  ",
+}
+_LOG_BOLD = {"step", "success", "error"}
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _tmp_path(suffix: str) -> str:
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    return path
+
+
+def _safe(s: str) -> str:
+    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _metric_card(val: str, lbl: str, color: str, big: bool = True) -> str:
+    num_style = "" if big else (
+        "font-size:0.95rem;line-height:1.25;"
+        "word-break:break-word;white-space:pre-line;"
+    )
+    return (
+        f'<div class="metric-card" '
+        f'style="color:{color};border-top:3px solid {color};">'
+        f'<div class="num" style="{num_style}">{_safe(val)}</div>'
+        f'<div class="lbl">{lbl}</div>'
+        f'</div>'
+    )
+
+
+def _render_log(entries: list) -> str:
+    if not entries:
+        return (
+            '<div class="log-box">'
+            '<span style="color:#999;">No activity yet.</span></div>'
+        )
+    lines = []
+    for ts, level, msg in entries:
+        color = _LOG_COLORS.get(level, "#999")
+        icon  = _LOG_ICONS.get(level, "    ")
+        bold  = "font-weight:700;" if level in _LOG_BOLD else ""
+        lines.append(
+            f'<span style="color:#BBBBBB;font-size:0.72rem;">{ts}</span>'
+            f'<span style="color:{color};{bold}">{icon}{_safe(msg)}</span><br>'
+        )
+    return f'<div class="log-box">{"".join(lines)}</div>'
+
+
+def _folder_for(unit: dict) -> str:
+    """Return 'Assessment' or 'Re-Assessment' based on report type."""
+    rt = (unit.get("report_type") or "").strip()
+    return "Re-Assessment" if rt.lower().startswith("re") else "Assessment"
+
+
+def _gen_zip(data: dict) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for unit, (filename, file_bytes) in zip(
+            data["units"], build_marksheet_per_unit(data)
+        ):
+            folder = _folder_for(unit)
+            zf.writestr(f"{folder}/{filename}", file_bytes)
+    return buf.getvalue()
+
+
+def _merge_data(data_list: list) -> dict:
+    if not data_list:
+        return {}
+    if len(data_list) == 1:
+        return data_list[0]
+
+    def _uniq(key: str) -> str:
+        vals = list(dict.fromkeys(
+            d.get(key, "").strip() for d in data_list
+            if d.get(key, "").strip()
+        ))
+        return vals[0] if len(vals) == 1 else " / ".join(vals[:3]) if vals else ""
+
+    all_units = []
+    for d in data_list:
+        all_units.extend(d.get("units", []))
+
+    return {
+        "centre_name":  _uniq("centre_name"),
+        "centre_code":  _uniq("centre_code"),
+        "course_name":  _uniq("course_name"),
+        "course_level": _uniq("course_level"),
+        "series":       _uniq("series"),
+        "units":        all_units,
+        "unit_count":   len(all_units),
+    }
+
+
+# ── Header ────────────────────────────────────────────────────────────────────
+st.markdown(f"""
+<div class="app-header">
+  <h1>📝&nbsp;&nbsp;Nominal Roll &rarr; Marksheet</h1>
+  <span class="ver">{_VERSION}</span>
+</div>
+""", unsafe_allow_html=True)
+
+# ── File uploader ─────────────────────────────────────────────────────────────
+uploaded_files = st.file_uploader(
+    "Upload nominal roll PDF(s)",
+    type=["pdf"],
+    accept_multiple_files=True,
+    label_visibility="collapsed",
+    help="Select one or more TVET CDACC Nominal Roll PDFs.",
+)
+
+if not uploaded_files:
+    st.info(
+        "Upload one or more TVET CDACC Nominal Roll PDFs to begin.  "
+        "The app will extract candidate lists and generate ready-to-fill "
+        "marksheets.",
+        icon="📂",
+    )
+    st.stop()
+
+# ── Incremental extraction ────────────────────────────────────────────────────
+current_map: dict = {f.name: f for f in uploaded_files}
+processed:   dict = st.session_state.get("processed_files", {})
+all_logs:    list = st.session_state.get("log_entries", [])
+
+removed = [name for name in list(processed.keys()) if name not in current_map]
+added   = [f for name, f in current_map.items() if name not in processed]
+
+for name in removed:
+    del processed[name]
+
+for uploaded in added:
+    tmp = _tmp_path(".pdf")
+    file_logs: list = []
+    try:
+        with open(tmp, "wb") as fh:
+            fh.write(uploaded.getvalue())
+
+        with st.status(f"🔍  Reading {uploaded.name}…", expanded=True) as status:
+            prog = st.progress(0, text="Initialising…")
+
+            def on_log(level: str, msg: str,
+                       _logs: list = file_logs) -> None:
+                ts = datetime.now().strftime("%H:%M:%S")
+                _logs.append((ts, level, msg))
+                _icons = {
+                    "step": "🔍", "found": "📋", "success": "✅",
+                    "warn": "⚠️", "error": "❌", "info": "·",
+                }
+                st.write(f"{_icons.get(level, '·')}  {msg}")
+
+            def on_progress(cur: int, total: int,
+                            _p=prog) -> None:
+                _p.progress(cur / total, text=f"Page {cur} of {total}")
+
+            data = extract(tmp, on_log=on_log, on_progress=on_progress)
+            prog.progress(1.0, text="Complete ✓")
+            status.update(
+                label=f"✅  {uploaded.name} — extraction complete!",
+                state="complete",
+                expanded=False,
+            )
+
+        processed[uploaded.name] = data
+        all_logs.extend(file_logs)
+
+    except Exception as exc:
+        st.error(f"❌  {uploaded.name}: {exc}")
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+if removed or added:
+    st.session_state.processed_files = processed
+    st.session_state.log_entries     = all_logs
+    st.session_state.extraction_done = bool(processed)
+    st.session_state.data            = _merge_data(list(processed.values()))
+    for key in list(st.session_state.keys()):
+        if key.startswith("_cache_"):
+            del st.session_state[key]
+
+if not processed:
+    st.warning("No files were processed successfully.")
+    st.stop()
+
+# ── Working values ────────────────────────────────────────────────────────────
+data        = st.session_state.data
+log_entries = st.session_state.get("log_entries", [])
+extr_done   = st.session_state.get("extraction_done", False)
+
+total    = sum(u["candidate_count"] for u in data["units"])
+assess   = sum(
+    u["candidate_count"] for u in data["units"]
+    if (u.get("report_type") or "").lower().startswith("assessment")
+)
+reassess = total - assess
+
+stem_default = (
+    os.path.splitext(uploaded_files[0].name)[0]
+    if len(uploaded_files) == 1
+    else "nominal_roll"
+)
+
+# ── Info cards ────────────────────────────────────────────────────────────────
+st.markdown('<p class="sec-lbl">Extracted Information</p>',
+            unsafe_allow_html=True)
+st.markdown(
+    '<div class="metrics-row">'
+    + _metric_card(data.get("centre_name") or "—", "Centre Name",  _C["primary"], big=False)
+    + _metric_card(data.get("centre_code") or "—", "Centre Code",  _C["info"],    big=False)
+    + _metric_card(data.get("course_name") or "—", "Course",       _C["success"], big=False)
+    + _metric_card(data.get("series")      or "—", "Exam Series",  _C["warning"], big=False)
+    + '</div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    '<div class="metrics-row">'
+    + _metric_card(str(data["unit_count"]), "Units",                          _C["primary"])
+    + _metric_card(str(total),              "Total<br>Registrations",         _C["info"])
+    + _metric_card(str(assess),             "Assessment<br>Registrations",    _C["success"])
+    + _metric_card(str(reassess),           "Re-Assessment<br>Registrations", _C["danger"])
+    + '</div>',
+    unsafe_allow_html=True,
+)
+
+# ── Activity log ──────────────────────────────────────────────────────────────
+with st.container(border=True):
+    n_files = len(processed)
+    badge = (
+        f'<span class="badge-done">Complete ✓  '
+        f'({n_files} file{"s" if n_files != 1 else ""})</span>'
+        if extr_done else
+        '<span class="badge-wait">Waiting…</span>'
+    )
+    st.markdown(
+        f'<div class="act-header">'
+        f'<span class="act-title">⚡ Activity</span>{badge}</div>',
+        unsafe_allow_html=True,
+    )
+    st.progress(1.0 if extr_done else 0.0)
+    st.markdown(_render_log(log_entries), unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ── Export ────────────────────────────────────────────────────────────────────
+st.markdown('<p class="sec-lbl">Export Marksheets</p>', unsafe_allow_html=True)
+
+with st.container(border=True):
+    zip_col, wb_col, _ = st.columns([1, 1, 1], gap="large")
+
+    # ── ZIP: one xlsx per unit ────────────────────────────────────────────────
+    with zip_col:
+        st.markdown('<p class="export-title">📦 ZIP — One file per unit</p>',
+                    unsafe_allow_html=True)
+        st.markdown(
+            '<p class="export-caption">Each unit gets its own .xlsx marksheet '
+            'with candidate list and empty marks columns.</p>',
+            unsafe_allow_html=True,
+        )
+        _zk = "_cache_zip"
+        if _zk not in st.session_state:
+            with st.spinner("Building marksheets…"):
+                st.session_state[_zk] = _gen_zip(data)
+
+        st.caption(
+            f"{data['unit_count']} file{'s' if data['unit_count'] != 1 else ''} "
+            f"inside — named after each unit."
+        )
+        st.markdown('<p class="fn-label">Save as</p>', unsafe_allow_html=True)
+        zip_fn = st.text_input(
+            "ZIP filename", value=f"{stem_default}_marksheets",
+            key="fn_zip", label_visibility="collapsed",
+        )
+        st.download_button(
+            label="⬇  Download ZIP",
+            data=st.session_state[_zk],
+            file_name=f"{zip_fn.strip() or stem_default}.zip",
+            mime="application/zip",
+            width="stretch",
+            type="primary",
+        )
+
+    # ── Single workbook: all units as sheets ──────────────────────────────────
+    with wb_col:
+        st.markdown('<p class="export-title">📊 Workbook — All units</p>',
+                    unsafe_allow_html=True)
+        st.markdown(
+            '<p class="export-caption">All units combined into one .xlsx '
+            'with a separate sheet per unit.</p>',
+            unsafe_allow_html=True,
+        )
+        _wk = "_cache_workbook"
+        if _wk not in st.session_state:
+            with st.spinner("Building workbook…"):
+                st.session_state[_wk] = build_marksheet_workbook(data)
+
+        st.caption(
+            f"{data['unit_count']} sheet{'s' if data['unit_count'] != 1 else ''} "
+            f"— one per unit."
+        )
+        st.markdown('<p class="fn-label">Save as</p>', unsafe_allow_html=True)
+        wb_fn = st.text_input(
+            "Workbook filename", value=f"{stem_default}_all_marksheets",
+            key="fn_wb", label_visibility="collapsed",
+        )
+        st.download_button(
+            label="⬇  Download Workbook",
+            data=st.session_state[_wk],
+            file_name=f"{wb_fn.strip() or stem_default}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            width="stretch",
+            type="primary",
+        )
+
+# ── Unit breakdown table ──────────────────────────────────────────────────────
+st.markdown("<br>", unsafe_allow_html=True)
+st.markdown('<p class="sec-lbl">Unit Breakdown</p>', unsafe_allow_html=True)
+
+rows = []
+for u in data["units"]:
+    rows.append({
+        "Unit Name":   u["unit_name"],
+        "Report Type": u.get("report_type") or "",
+        "Candidates":  u["candidate_count"],
+    })
+
+st.dataframe(
+    rows,
+    width="stretch",
+    hide_index=True,
+    column_config={
+        "Unit Name":   st.column_config.TextColumn(width="large"),
+        "Report Type": st.column_config.TextColumn(width="medium"),
+        "Candidates":  st.column_config.NumberColumn(width="small"),
+    },
+)

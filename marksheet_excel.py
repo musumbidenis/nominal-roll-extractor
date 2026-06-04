@@ -253,8 +253,8 @@ def _build_unit_sheet(ws, data: dict, unit: dict):
         ws.cell(row=r, column=1, value=cand["sn"]).alignment           = _CTR
         ws.cell(row=r, column=2, value=cand["reg_no"]).alignment       = _LFT
         ws.cell(row=r, column=3,
-                value=cand.get("admission_no", "")).alignment          = _LFT_S
-        ws.cell(row=r, column=4, value=cand["name"]).alignment         = _LFT_S
+                value=cand.get("admission_no", "")).alignment          = _LFT
+        ws.cell(row=r, column=4, value=cand["name"]).alignment         = _LFT
 
         cat_avg           = ws.cell(row=r, column=8)
         cat_avg.value     = f'=IF(COUNT(E{r}:G{r})=3,AVERAGE(E{r}:G{r}),"")'

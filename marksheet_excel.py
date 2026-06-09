@@ -122,7 +122,7 @@ def _border_range(ws, r1, c1, r2, c2):
 
 # ── Sheet builder ─────────────────────────────────────────────────────────────
 
-def _build_unit_sheet(ws, data: dict, unit: dict):
+def _build_unit_sheet(ws, data: dict, unit: dict, logo_path: str = None):
     centre_code  = data.get("centre_code") or ""
     centre_name  = data.get("centre_name") or _CENTRE_NAME
     course_name  = (unit.get("course_name") or data.get("course_name") or "")
@@ -153,8 +153,9 @@ def _build_unit_sheet(ws, data: dict, unit: dict):
         ws.row_dimensions[r].height = 28.0
 
     # ── Rows 1-3 : logo centred across A-L ────────────────────────────────────
-    if os.path.exists(_LOGO_PATH):
-        xl_img  = XLImage(_LOGO_PATH)
+    logo = logo_path or _LOGO_PATH
+    if logo and os.path.exists(logo):
+        xl_img  = XLImage(logo)
         logo_px = 100
         marker  = AnchorMarker(col=3, colOff=87 * _EMU, row=0, rowOff=10 * _EMU)
         size    = XDRPositiveSize2D(cx=logo_px * _EMU, cy=logo_px * _EMU)
@@ -329,7 +330,7 @@ def _build_unit_sheet(ws, data: dict, unit: dict):
 
 # ── Public entry points ───────────────────────────────────────────────────────
 
-def build_marksheet_per_unit(data: dict) -> list[tuple[str, bytes]]:
+def build_marksheet_per_unit(data: dict, logo_path: str = None) -> list[tuple[str, bytes]]:
     """One .xlsx per unit.  Returns [(filename, file_bytes), ...]."""
     results: list[tuple[str, bytes]] = []
     for unit in data["units"]:
@@ -340,7 +341,7 @@ def build_marksheet_per_unit(data: dict) -> list[tuple[str, bytes]]:
                 re.sub(r"[/\\:*?\[\]]", "-", unit["unit_name"])[:31], set()
             )
         )
-        _build_unit_sheet(ws, data, unit)
+        _build_unit_sheet(ws, data, unit, logo_path)
         buf = io.BytesIO()
         wb.save(buf)
         fname = _safe_filename(unit["unit_name"], unit.get("unit_code", "")) + ".xlsx"
@@ -348,7 +349,7 @@ def build_marksheet_per_unit(data: dict) -> list[tuple[str, bytes]]:
     return results
 
 
-def build_marksheet_workbook(data: dict) -> bytes:
+def build_marksheet_workbook(data: dict, logo_path: str = None) -> bytes:
     """All units as separate sheets in one workbook.  Returns file bytes."""
     wb, used = Workbook(), set()
     wb.remove(wb.active)
@@ -358,7 +359,7 @@ def build_marksheet_workbook(data: dict) -> bytes:
                 re.sub(r"[/\\:*?\[\]]", "-", unit["unit_name"])[:31], used
             )
         )
-        _build_unit_sheet(ws, data, unit)
+        _build_unit_sheet(ws, data, unit, logo_path)
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()

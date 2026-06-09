@@ -274,7 +274,43 @@ def _safe_folder(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', "_", (name or "Unknown").strip()) or "Unknown"
 
 
-def _gen_zip(data: dict) -> bytes:
+# ── Logo library (persists on disk across sessions) ───────────────────────────
+_APP_DIR      = os.path.dirname(os.path.abspath(__file__))
+_LOGO_DIR     = os.path.join(_APP_DIR, "saved_logos")
+_DEFAULT_LOGO = os.path.join(_APP_DIR, "rvnp_logo.png")
+_LOGO_EXTS    = (".png", ".jpg", ".jpeg")
+
+
+def _logo_label(filename: str) -> str:
+    """'greenfield_high.png' → 'Greenfield High'."""
+    stem   = os.path.splitext(os.path.basename(filename))[0]
+    pretty = re.sub(r"[_-]+", " ", stem).strip().title()
+    return pretty or os.path.basename(filename)
+
+
+def _list_saved_logos() -> list:
+    """[(label, path), ...] for every logo in the saved library, A→Z."""
+    os.makedirs(_LOGO_DIR, exist_ok=True)
+    return [
+        (_logo_label(fn), os.path.join(_LOGO_DIR, fn))
+        for fn in sorted(os.listdir(_LOGO_DIR))
+        if fn.lower().endswith(_LOGO_EXTS)
+    ]
+
+
+def _save_logo(filename: str, blob: bytes) -> str:
+    """Persist an uploaded logo to the library; returns its saved path."""
+    os.makedirs(_LOGO_DIR, exist_ok=True)
+    safe = re.sub(r'[\\/:*?"<>|]', "_", filename).strip() or "logo.png"
+    if not safe.lower().endswith(_LOGO_EXTS):
+        safe += ".png"
+    path = os.path.join(_LOGO_DIR, safe)
+    with open(path, "wb") as fh:
+        fh.write(blob)
+    return path
+
+
+def _gen_zip(data: dict, logo_path: str = None) -> bytes:
     # Plan each file's folder path + filename up front so we can detect
     # collisions (two units sharing a name within the same course folder).
     planned = [
@@ -282,7 +318,7 @@ def _gen_zip(data: dict) -> bytes:
          f'{_safe_folder(unit.get("course_name") or "Unknown Course")}',
          filename, file_bytes)
         for unit, (filename, file_bytes) in zip(
-            data["units"], build_marksheet_per_unit(data)
+            data["units"], build_marksheet_per_unit(data, logo_path=logo_path)
         )
     ]
 
@@ -482,6 +518,65 @@ with st.container(border=True):
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+# ── School logo ───────────────────────────────────────────────────────────────
+st.markdown('<p class="sec-lbl">School Logo</p>', unsafe_allow_html=True)
+
+with st.container(border=True):
+    logo_up_col, logo_pick_col = st.columns([1, 1], gap="large")
+
+    # ── Upload a new logo (saved to the library for next time) ─────────────────
+    with logo_up_col:
+        st.markdown('<p class="export-title">⬆ Upload a logo</p>',
+                    unsafe_allow_html=True)
+        st.markdown(
+            '<p class="export-caption">PNG or JPG. It is saved to your logo '
+            'library, so next time just pick it from the list — no re-upload.</p>',
+            unsafe_allow_html=True,
+        )
+        _new_logo = st.file_uploader(
+            "Upload school logo", type=["png", "jpg", "jpeg"],
+            key="logo_upload", label_visibility="collapsed",
+        )
+        if _new_logo is not None:
+            _sig = f"{_new_logo.name}:{_new_logo.size}"
+            if st.session_state.get("_logo_saved_sig") != _sig:
+                _saved = _save_logo(_new_logo.name, _new_logo.getvalue())
+                st.session_state["_logo_saved_sig"] = _sig
+                st.session_state["logo_choice"]     = _logo_label(_saved)
+                st.success(f"Saved “{_logo_label(_saved)}” to your logo library.")
+
+    # ── Choose from the saved library ─────────────────────────────────────────
+    with logo_pick_col:
+        st.markdown('<p class="export-title">🏫 Choose logo</p>',
+                    unsafe_allow_html=True)
+
+        _options  = [("Default (RVNP)", _DEFAULT_LOGO)] + _list_saved_logos()
+        _by_label = {lbl: pth for lbl, pth in _options}
+        _labels   = list(_by_label.keys())
+
+        if st.session_state.get("logo_choice") not in _labels:
+            st.session_state["logo_choice"] = _labels[0]
+
+        _choice   = st.selectbox(
+            "Choose logo", _labels, key="logo_choice",
+            label_visibility="collapsed",
+        )
+        logo_path = _by_label.get(_choice, _DEFAULT_LOGO)
+
+        if os.path.exists(logo_path):
+            st.image(logo_path, width=120, caption=_choice)
+        else:
+            st.caption("⚠ Logo file not found — the default will be used.")
+            logo_path = _DEFAULT_LOGO
+
+# Rebuild the exports whenever the chosen logo changes.
+if st.session_state.get("_active_logo") != logo_path:
+    for _k in ("_cache_zip", "_cache_workbook"):
+        st.session_state.pop(_k, None)
+    st.session_state["_active_logo"] = logo_path
+
+st.markdown("<br>", unsafe_allow_html=True)
+
 # ── Export ────────────────────────────────────────────────────────────────────
 st.markdown('<p class="sec-lbl">Export Marksheets</p>', unsafe_allow_html=True)
 
@@ -500,7 +595,7 @@ with st.container(border=True):
         _zk = "_cache_zip"
         if _zk not in st.session_state:
             with st.spinner("Building marksheets…"):
-                st.session_state[_zk] = _gen_zip(data)
+                st.session_state[_zk] = _gen_zip(data, logo_path)
 
         st.caption(
             f"{data['unit_count']} file{'s' if data['unit_count'] != 1 else ''} "
@@ -532,7 +627,7 @@ with st.container(border=True):
         _wk = "_cache_workbook"
         if _wk not in st.session_state:
             with st.spinner("Building workbook…"):
-                st.session_state[_wk] = build_marksheet_workbook(data)
+                st.session_state[_wk] = build_marksheet_workbook(data, logo_path=logo_path)
 
         st.caption(
             f"{data['unit_count']} sheet{'s' if data['unit_count'] != 1 else ''} "

@@ -4,3 +4,6 @@ __pycache__/
 streamlit_out.txt
 streamlit_err.txt
 .env
+
+# User-uploaded school logos (saved logo library)
+saved_logos/

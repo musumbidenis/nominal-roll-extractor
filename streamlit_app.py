@@ -13,6 +13,7 @@ import os
 import re
 import tempfile
 import zipfile
+from collections import Counter
 from datetime import datetime
 
 import streamlit as st
@@ -274,14 +275,31 @@ def _safe_folder(name: str) -> str:
 
 
 def _gen_zip(data: dict) -> bytes:
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+    # Plan each file's folder path + filename up front so we can detect
+    # collisions (two units sharing a name within the same course folder).
+    planned = [
+        (f'{_folder_for(unit)}/'
+         f'{_safe_folder(unit.get("course_name") or "Unknown Course")}',
+         filename, file_bytes)
         for unit, (filename, file_bytes) in zip(
             data["units"], build_marksheet_per_unit(data)
-        ):
-            folder = _folder_for(unit)
-            course = _safe_folder(unit.get("course_name") or "Unknown Course")
-            zf.writestr(f"{folder}/{course}/{filename}", file_bytes)
+        )
+    ]
+
+    # Number only the filenames that actually repeat: a name occurring twice
+    # becomes "Name (1).xlsx" and "Name (2).xlsx"; unique names stay as-is.
+    totals = Counter(f"{path}/{name}" for path, name, _ in planned)
+    seen = {}
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path, name, file_bytes in planned:
+            full = f"{path}/{name}"
+            if totals[full] > 1:
+                seen[full] = seen.get(full, 0) + 1
+                stem, ext = os.path.splitext(name)
+                name = f"{stem} ({seen[full]}){ext}"
+            zf.writestr(f"{path}/{name}", file_bytes)
     return buf.getvalue()
 
 

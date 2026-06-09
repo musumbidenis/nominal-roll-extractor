@@ -322,15 +322,17 @@ def _gen_zip(data: dict, logo_path: str = None) -> bytes:
         )
     ]
 
-    # Number only the filenames that actually repeat: a name occurring twice
-    # becomes "Name (1).xlsx" and "Name (2).xlsx"; unique names stay as-is.
-    totals = Counter(f"{path}/{name}" for path, name, _ in planned)
+    # Number filenames that repeat within a folder, compared case-INSENSITIVELY:
+    # Windows/macOS treat "Name.xlsx" and "name.xlsx" as the same file, so a
+    # second one would overwrite the first on extraction. Collisions become
+    # "Name (1).xlsx" / "Name (2).xlsx"; unique names stay as-is.
+    totals = Counter(f"{path}/{name}".lower() for path, name, _ in planned)
     seen = {}
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for path, name, file_bytes in planned:
-            full = f"{path}/{name}"
+            full = f"{path}/{name}".lower()
             if totals[full] > 1:
                 seen[full] = seen.get(full, 0) + 1
                 stem, ext = os.path.splitext(name)

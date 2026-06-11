@@ -37,11 +37,11 @@ from marksheet_excel import (
 
 _EXAMINING_BODY = "TVET CDACC"
 
-_HEADERS = ("S/N", "NAME", "ADM NO", "REG. NO", "LEVEL", "UNIT(S)",
-            "UNIT(S) REGISTERED NAME(S)", "ASS. FEES", "FEES ARREARS",
-            "REMARKS")
+_HEADERS = ("S/N", "NAME", "ADM NO", "REG. NO", "LEVEL",
+            "UNIT(S) REGISTERED NAME(S)", "UNIT(S)", "ASS. FEES",
+            "FEES ARREARS", "REMARKS")
 _LAST_COL = "J"          # 10 columns, A..J
-_UNITS_COL = "G"
+_UNITS_COL = "F"         # unit names; the count sits in G
 
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
@@ -148,8 +148,8 @@ def _class_groups(course: dict) -> list[dict]:
         members    = groups[code]
         unit_names = {u for m in members for u in m["units"]}
         out.append({
-            "class_name": f"{stem} CLASS {code}".strip(),
-            "short_name": f"CLASS {code}",
+            "class_name": f"{stem} Class {code}".strip(),
+            "short_name": f"Class {code}",
             "course": {
                 "course_name":  cname,
                 "course_level": clvl,
@@ -158,6 +158,19 @@ def _class_groups(course: dict) -> list[dict]:
             "candidates": members,
         })
     return out
+
+
+def _centre_anchor(col_widths: list[float], obj_px: int) -> tuple[int, int]:
+    """(column index, pixel offset) that centres an obj_px-wide image over
+    the given columns.  Excel renders a width-w column ≈ w*7+5 px wide."""
+    px = [int(round(w * 7)) + 5 for w in col_widths]
+    target = max(0, (sum(px) - obj_px) // 2)
+    acc = 0
+    for idx, p in enumerate(px):
+        if acc + p > target:
+            return idx, int(target - acc)
+        acc += p
+    return 0, 0
 
 
 # ── Sheet builder ─────────────────────────────────────────────────────────────
@@ -172,20 +185,21 @@ def _build_form_sheet(ws, data: dict, course: dict, table_id: int,
 
     # ── Column widths ─────────────────────────────────────────────────────────
     longest_unit = max((len(u) for u in units), default=0)
-    for col, width in (("A", 7.0), ("B", 34.0), ("C", 20.0), ("D", 32.0),
-                       ("E", 9.0), ("F", 9.0),
-                       (_UNITS_COL, max(18.0, longest_unit + 4.0)),
-                       ("H", 13.0), ("I", 16.0), ("J", 18.0)):
+    widths = (("A", 7.0), ("B", 34.0), ("C", 20.0), ("D", 32.0), ("E", 9.0),
+              (_UNITS_COL, max(18.0, longest_unit + 4.0)), ("G", 9.0),
+              ("H", 13.0), ("I", 16.0), ("J", 18.0))
+    for col, width in widths:
         ws.column_dimensions[col].width = width
 
-    # ── Rows 1-3 : logo ───────────────────────────────────────────────────────
+    # ── Rows 1-3 : logo, centred over the form width ──────────────────────────
     for r in (1, 2, 3):
         ws.row_dimensions[r].height = 30.0
     logo = logo_path or _LOGO_PATH
     if logo and os.path.exists(logo):
         xl_img  = XLImage(logo)
         logo_px = 100
-        marker  = AnchorMarker(col=3, colOff=50 * _EMU, row=0, rowOff=10 * _EMU)
+        col, off = _centre_anchor([w for _, w in widths], logo_px)
+        marker  = AnchorMarker(col=col, colOff=off * _EMU, row=0, rowOff=10 * _EMU)
         size    = XDRPositiveSize2D(cx=logo_px * _EMU, cy=logo_px * _EMU)
         xl_img.anchor = OneCellAnchor(_from=marker, ext=size)
         ws.add_image(xl_img)
@@ -238,9 +252,9 @@ def _build_form_sheet(ws, data: dict, course: dict, table_id: int,
         _set(ws, f"C{r}", value=cand["admission_no"],    font=_f(size=12), align=_LFT)
         _set(ws, f"D{r}", value=cand["reg_no"],          font=_f(size=12), align=_LFT)
         _set(ws, f"E{r}", value=cand["level"],           font=_f(size=12), align=_CTR)
-        _set(ws, f"F{r}", value=n_units,                 font=_f(size=12), align=_CTR)
         _set(ws, f"{_UNITS_COL}{r}", value="\n".join(cand["units"]),
              font=_f(size=12), align=_LFT)
+        _set(ws, f"G{r}", value=n_units,                 font=_f(size=12), align=_CTR)
         _border_range(ws, r, 1, r, 10)
 
     # Excel table over header + data so the list can be filtered/sorted.
@@ -320,7 +334,7 @@ def build_registration_form(data: dict, logo_path: str = None) -> bytes:
 def build_class_forms(data: dict, logo_path: str = None) -> list[tuple[str, bytes]]:
     """One registration form per class — classes are identified by the intake
     code in each candidate's admission number (e.g. '1234/24S' → class 24S)
-    and named after their course (e.g. "ICT L6 CLASS 24S").
+    and named after their course (e.g. "ICT L6 Class 24S").
     Returns [(filename, file_bytes), ...]."""
     results = []
     for course in _courses(data):

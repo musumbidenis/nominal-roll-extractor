@@ -715,7 +715,7 @@ with st.container(border=True):
             '<p class="export-caption">Classes are read from admission '
             'numbers (the intake code after the first “/”, e.g. 24S). One '
             'registration form per class, named after its course (e.g. '
-            '“ICT L6 CLASS 24S”).</p>',
+            '“ICT L6 Class 24S”).</p>',
             unsafe_allow_html=True,
         )
         _ck = "_cache_classzip"

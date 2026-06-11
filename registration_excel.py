@@ -8,12 +8,14 @@ REGISTRATION FORM.xlsx) rebuilt in the marksheet house style, hence the
 imports of marksheet_excel's private style helpers — both exports stay
 visually consistent.
 
-One sheet tab per course: candidates are the union across that course's
-units (deduplicated by reg no, first-seen order, renumbered 1..N) and laid
-out as an Excel table so the data can be filtered/sorted.  Each candidate
-row carries the count and names of the units they registered (one name per
-line; the column is sized to the longest unit name).  Re-Assessment units
-are excluded entirely — the form registers first-attempt candidates only.
+One form per class: classes are identified by the intake code in each
+candidate's admission number ('1234/24S' → class 24S) and named after
+their course.  Candidates are deduplicated by reg no (first-seen order,
+renumbered 1..N) and laid out as an Excel table so the data can be
+filtered/sorted.  Each candidate row carries the names and count of the
+units they registered (one name per line; the column is sized to the
+longest unit name).  Re-Assessment units are excluded entirely — the form
+registers first-attempt candidates only.
 
 DEPARTMENT, CLASS NAME, ASS. FEES, FEES ARREARS and REMARKS are left blank
 for manual entry; the sheets are intentionally unprotected.
@@ -110,15 +112,6 @@ def _unit_labels(course: dict) -> list[str]:
         seen.add(u["unit_name"])
         labels.append(u["unit_name"])
     return labels
-
-
-def _sheet_title(course: dict) -> str:
-    """Course name (+ level) trimmed so the level survives the 31-char cap."""
-    cname, clvl = course["course_name"] or "Registration", course["course_level"]
-    if not clvl:
-        return cname
-    suffix = f" L{clvl}"
-    return cname[: 31 - len(suffix)].rstrip() + suffix
 
 
 _CLASS_CODE_RE = re.compile(r"/\s*(\d{2}[A-Za-z])")
@@ -317,19 +310,6 @@ def _build_form_sheet(ws, data: dict, course: dict, table_id: int,
 
 
 # ── Public entry point ────────────────────────────────────────────────────────
-
-def build_registration_form(data: dict, logo_path: str = None) -> bytes:
-    """One registration sheet per course (Re-Assessment units excluded).
-    Returns file bytes."""
-    wb, used = Workbook(), set()
-    wb.remove(wb.active)
-    for i, course in enumerate(_courses(data), 1):
-        ws = wb.create_sheet(_safe_sheet_name(_sheet_title(course), used))
-        _build_form_sheet(ws, data, course, table_id=i, logo_path=logo_path)
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue()
-
 
 def build_class_forms(data: dict, logo_path: str = None) -> list[tuple[str, bytes]]:
     """One registration form per class — classes are identified by the intake

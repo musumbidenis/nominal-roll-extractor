@@ -347,19 +347,3 @@ def build_marksheet_per_unit(data: dict, logo_path: str = None) -> list[tuple[st
         fname = _safe_filename(unit["unit_name"], unit.get("unit_code", "")) + ".xlsx"
         results.append((fname, buf.getvalue()))
     return results
-
-
-def build_marksheet_workbook(data: dict, logo_path: str = None) -> bytes:
-    """All units as separate sheets in one workbook.  Returns file bytes."""
-    wb, used = Workbook(), set()
-    wb.remove(wb.active)
-    for unit in data["units"]:
-        ws = wb.create_sheet(
-            _safe_sheet_name(
-                re.sub(r"[/\\:*?\[\]]", "-", unit["unit_name"])[:31], used
-            )
-        )
-        _build_unit_sheet(ws, data, unit, logo_path)
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue()

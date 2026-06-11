@@ -32,7 +32,7 @@ from openpyxl.worksheet.table import Table
 
 from marksheet_excel import (
     _BLUE, _BORDER_FULL, _CENTRE_NAME, _CTR, _EMU, _LFT, _LOGO_PATH,
-    _border_range, _f, _rich, _safe_sheet_name, _set,
+    _border_range, _f, _rich, _safe_filename, _safe_sheet_name, _set,
 )
 
 _EXAMINING_BODY = "TVET CDACC"
@@ -121,12 +121,55 @@ def _sheet_title(course: dict) -> str:
     return cname[: 31 - len(suffix)].rstrip() + suffix
 
 
+def _class_letter(i: int) -> str:
+    """1 → A, 2 → B … 27 → AA."""
+    s = ""
+    while i:
+        i, r = divmod(i - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def _class_groups(course: dict) -> list[dict]:
+    """Split a course's candidates into classes: candidates registering the
+    exact same set of units belong to the same class.  Classes are lettered
+    A, B, C… in first-seen order; each gets a name unique to its course."""
+    cands = _union_candidates(course)
+    groups, order = {}, []
+    for cand in cands:
+        key = frozenset(cand["units"])
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(cand)
+
+    cname, clvl = course["course_name"], course["course_level"]
+    stem = f"{cname} L{clvl}" if clvl else cname
+    out = []
+    for i, key in enumerate(order, 1):
+        members   = groups[key]
+        unit_set  = set(members[0]["units"])
+        out.append({
+            "class_name": f"{stem} CLASS {_class_letter(i)}".strip(),
+            "short_name": f"CLASS {_class_letter(i)}",
+            "course": {
+                "course_name":  cname,
+                "course_level": clvl,
+                "units": [u for u in course["units"] if u["unit_name"] in unit_set],
+            },
+            "candidates": members,
+        })
+    return out
+
+
 # ── Sheet builder ─────────────────────────────────────────────────────────────
 
 def _build_form_sheet(ws, data: dict, course: dict, table_id: int,
-                      logo_path: str = None):
+                      logo_path: str = None, candidates: list = None,
+                      class_name: str = ""):
     centre_name = data.get("centre_name") or _CENTRE_NAME
-    candidates  = _union_candidates(course)
+    if candidates is None:
+        candidates = _union_candidates(course)
     units       = _unit_labels(course)
 
     # ── Column widths ─────────────────────────────────────────────────────────
@@ -169,7 +212,7 @@ def _build_form_sheet(ws, data: dict, course: dict, table_id: int,
         (8,  "DEPARTMENT:",      ""),
         (9,  "EXAMINING BODY: ", _EXAMINING_BODY),
         (10, "COURSE NAME: ",    course["course_name"]),
-        (11, "CLASS NAME:",      ""),
+        (11, "CLASS NAME:" if not class_name else "CLASS NAME: ", class_name),
     ):
         ws.merge_cells(f"A{row}:{_LAST_COL}{row}")
         ws.row_dimensions[row].height = 20.0
@@ -274,3 +317,24 @@ def build_registration_form(data: dict, logo_path: str = None) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def build_class_forms(data: dict, logo_path: str = None) -> list[tuple[str, bytes]]:
+    """One registration form per class — candidates registering the exact
+    same set of units form a class, named after their course (e.g.
+    "ICT L6 CLASS A").  Returns [(filename, file_bytes), ...]."""
+    results = []
+    for course in _courses(data):
+        for grp in _class_groups(course):
+            wb = Workbook()
+            ws = wb.active
+            ws.title = _safe_sheet_name(grp["short_name"], set())
+            _build_form_sheet(ws, data, grp["course"], table_id=1,
+                              logo_path=logo_path,
+                              candidates=grp["candidates"],
+                              class_name=grp["class_name"])
+            buf = io.BytesIO()
+            wb.save(buf)
+            results.append((_safe_filename(grp["class_name"], "") + ".xlsx",
+                            buf.getvalue()))
+    return results

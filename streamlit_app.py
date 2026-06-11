@@ -20,7 +20,7 @@ import streamlit as st
 
 from extract_nominal import extract
 from marksheet_excel import build_marksheet_per_unit, build_marksheet_workbook
-from registration_excel import build_registration_form
+from registration_excel import build_class_forms, build_registration_form
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -342,6 +342,25 @@ def _gen_zip(data: dict, logo_path: str = None) -> bytes:
     return buf.getvalue()
 
 
+def _gen_class_zip(data: dict, logo_path: str = None) -> tuple[bytes, int]:
+    """ZIP of per-class registration forms.  Returns (zip_bytes, n_classes).
+    Class names are unique per course by construction; the numbering guard
+    below only catches pathological sanitised-filename collisions."""
+    files = build_class_forms(data, logo_path=logo_path)
+    totals = Counter(name.lower() for name, _ in files)
+    seen = {}
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, file_bytes in files:
+            key = name.lower()
+            if totals[key] > 1:
+                seen[key] = seen.get(key, 0) + 1
+                stem, ext = os.path.splitext(name)
+                name = f"{stem} ({seen[key]}){ext}"
+            zf.writestr(name, file_bytes)
+    return buf.getvalue(), len(files)
+
+
 def _merge_data(data_list: list) -> dict:
     if not data_list:
         return {}
@@ -574,7 +593,7 @@ with st.container(border=True):
 
 # Rebuild the exports whenever the chosen logo changes.
 if st.session_state.get("_active_logo") != logo_path:
-    for _k in ("_cache_zip", "_cache_workbook", "_cache_regform"):
+    for _k in ("_cache_zip", "_cache_workbook", "_cache_regform", "_cache_classzip"):
         st.session_state.pop(_k, None)
     st.session_state["_active_logo"] = logo_path
 
@@ -685,6 +704,36 @@ with st.container(border=True):
             data=st.session_state[_rk],
             file_name=f"{reg_fn.strip() or stem_default}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            width="stretch",
+            type="primary",
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<p class="export-title">🏫 Class Forms — ZIP</p>',
+                    unsafe_allow_html=True)
+        st.markdown(
+            '<p class="export-caption">Candidates registering the exact same '
+            'units form a class. One registration form per class, named '
+            'after its course (e.g. “ICT L6 CLASS A”).</p>',
+            unsafe_allow_html=True,
+        )
+        _ck = "_cache_classzip"
+        if _ck not in st.session_state:
+            with st.spinner("Building class forms…"):
+                st.session_state[_ck] = _gen_class_zip(data, logo_path)
+        _czip, _ncls = st.session_state[_ck]
+
+        st.caption(f"{_ncls} class form{'s' if _ncls != 1 else ''} inside.")
+        st.markdown('<p class="fn-label">Save as</p>', unsafe_allow_html=True)
+        cls_fn = st.text_input(
+            "Class forms filename", value=f"{stem_default}_class_forms",
+            key="fn_classzip", label_visibility="collapsed",
+        )
+        st.download_button(
+            label="⬇  Download Class Forms",
+            data=_czip,
+            file_name=f"{cls_fn.strip() or stem_default}.zip",
+            mime="application/zip",
             width="stretch",
             type="primary",
         )

@@ -20,6 +20,7 @@ import streamlit as st
 
 from extract_nominal import extract
 from marksheet_excel import build_marksheet_per_unit, build_marksheet_workbook
+from registration_excel import build_registration_form
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -573,7 +574,7 @@ with st.container(border=True):
 
 # Rebuild the exports whenever the chosen logo changes.
 if st.session_state.get("_active_logo") != logo_path:
-    for _k in ("_cache_zip", "_cache_workbook"):
+    for _k in ("_cache_zip", "_cache_workbook", "_cache_regform"):
         st.session_state.pop(_k, None)
     st.session_state["_active_logo"] = logo_path
 
@@ -583,7 +584,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 st.markdown('<p class="sec-lbl">Export Marksheets</p>', unsafe_allow_html=True)
 
 with st.container(border=True):
-    zip_col, wb_col, _ = st.columns([1, 1, 1], gap="large")
+    zip_col, wb_col, reg_col = st.columns([1, 1, 1], gap="large")
 
     # ── ZIP: one xlsx per unit ────────────────────────────────────────────────
     with zip_col:
@@ -644,6 +645,40 @@ with st.container(border=True):
             label="⬇  Download Workbook",
             data=st.session_state[_wk],
             file_name=f"{wb_fn.strip() or stem_default}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            width="stretch",
+            type="primary",
+        )
+
+    # ── Registration form: one consolidated sheet ─────────────────────────────
+    with reg_col:
+        st.markdown('<p class="export-title">📋 Registration Form</p>',
+                    unsafe_allow_html=True)
+        st.markdown(
+            '<p class="export-caption">One SUMMATIVE ASSESSMENT REGISTRATION '
+            'form — all candidates across all units, deduplicated by reg '
+            'no.</p>',
+            unsafe_allow_html=True,
+        )
+        _rk = "_cache_regform"
+        if _rk not in st.session_state:
+            with st.spinner("Building registration form…"):
+                st.session_state[_rk] = build_registration_form(data, logo_path=logo_path)
+
+        n_cand = len({c["reg_no"] for u in data["units"] for c in u["candidates"]})
+        st.caption(
+            f"{n_cand} candidate{'s' if n_cand != 1 else ''} · "
+            f"{data['unit_count']} unit{'s' if data['unit_count'] != 1 else ''} listed."
+        )
+        st.markdown('<p class="fn-label">Save as</p>', unsafe_allow_html=True)
+        reg_fn = st.text_input(
+            "Registration form filename", value=f"{stem_default}_registration",
+            key="fn_reg", label_visibility="collapsed",
+        )
+        st.download_button(
+            label="⬇  Download Form",
+            data=st.session_state[_rk],
+            file_name=f"{reg_fn.strip() or stem_default}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             width="stretch",
             type="primary",

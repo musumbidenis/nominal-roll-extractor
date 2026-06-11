@@ -121,41 +121,39 @@ def _sheet_title(course: dict) -> str:
     return cname[: 31 - len(suffix)].rstrip() + suffix
 
 
-def _class_letter(i: int) -> str:
-    """1 → A, 2 → B … 27 → AA."""
-    s = ""
-    while i:
-        i, r = divmod(i - 1, 26)
-        s = chr(65 + r) + s
-    return s
+_CLASS_CODE_RE = re.compile(r"/\s*(\d{2}[A-Za-z])")
+
+
+def _class_code(admission_no: str) -> str:
+    """Class identifier from an admission number: the intake token after the
+    first '/', e.g. '1234/24S' → '24S'.  Empty when the number has none."""
+    m = _CLASS_CODE_RE.search(admission_no or "")
+    return m.group(1).upper() if m else ""
 
 
 def _class_groups(course: dict) -> list[dict]:
-    """Split a course's candidates into classes: candidates registering the
-    exact same set of units belong to the same class.  Classes are lettered
-    A, B, C… in first-seen order; each gets a name unique to its course."""
-    cands = _union_candidates(course)
-    groups, order = {}, []
-    for cand in cands:
-        key = frozenset(cand["units"])
-        if key not in groups:
-            groups[key] = []
-            order.append(key)
-        groups[key].append(cand)
+    """Split a course's candidates into classes identified by the intake code
+    in their admission numbers (24S, 25M, …).  Candidates whose admission
+    number carries no code fall into UNGROUPED.  Each class gets a name
+    unique to its course; classes are ordered by code (UNGROUPED last)."""
+    groups = {}
+    for cand in _union_candidates(course):
+        code = _class_code(cand["admission_no"]) or "UNGROUPED"
+        groups.setdefault(code, []).append(cand)
 
     cname, clvl = course["course_name"], course["course_level"]
     stem = f"{cname} L{clvl}" if clvl else cname
     out = []
-    for i, key in enumerate(order, 1):
-        members   = groups[key]
-        unit_set  = set(members[0]["units"])
+    for code in sorted(groups, key=lambda c: (c == "UNGROUPED", c)):
+        members    = groups[code]
+        unit_names = {u for m in members for u in m["units"]}
         out.append({
-            "class_name": f"{stem} CLASS {_class_letter(i)}".strip(),
-            "short_name": f"CLASS {_class_letter(i)}",
+            "class_name": f"{stem} CLASS {code}".strip(),
+            "short_name": f"CLASS {code}",
             "course": {
                 "course_name":  cname,
                 "course_level": clvl,
-                "units": [u for u in course["units"] if u["unit_name"] in unit_set],
+                "units": [u for u in course["units"] if u["unit_name"] in unit_names],
             },
             "candidates": members,
         })
@@ -320,9 +318,10 @@ def build_registration_form(data: dict, logo_path: str = None) -> bytes:
 
 
 def build_class_forms(data: dict, logo_path: str = None) -> list[tuple[str, bytes]]:
-    """One registration form per class — candidates registering the exact
-    same set of units form a class, named after their course (e.g.
-    "ICT L6 CLASS A").  Returns [(filename, file_bytes), ...]."""
+    """One registration form per class — classes are identified by the intake
+    code in each candidate's admission number (e.g. '1234/24S' → class 24S)
+    and named after their course (e.g. "ICT L6 CLASS 24S").
+    Returns [(filename, file_bytes), ...]."""
     results = []
     for course in _courses(data):
         for grp in _class_groups(course):

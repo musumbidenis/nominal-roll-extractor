@@ -712,9 +712,10 @@ with st.container(border=True):
         st.markdown('<p class="export-title">🏫 Class Forms — ZIP</p>',
                     unsafe_allow_html=True)
         st.markdown(
-            '<p class="export-caption">Candidates registering the exact same '
-            'units form a class. One registration form per class, named '
-            'after its course (e.g. “ICT L6 CLASS A”).</p>',
+            '<p class="export-caption">Classes are read from admission '
+            'numbers (the intake code after the first “/”, e.g. 24S). One '
+            'registration form per class, named after its course (e.g. '
+            '“ICT L6 CLASS 24S”).</p>',
             unsafe_allow_html=True,
         )
         _ck = "_cache_classzip"

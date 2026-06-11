@@ -10,9 +10,10 @@ visually consistent.
 
 One sheet tab per course: candidates are the union across that course's
 units (deduplicated by reg no, first-seen order, renumbered 1..N) and laid
-out as an Excel table so the data can be filtered/sorted.  Re-Assessment
-units are excluded entirely — the form registers first-attempt candidates
-only.
+out as an Excel table so the data can be filtered/sorted.  Each candidate
+row carries the count and names of the units they registered (one name per
+line; the column is sized to the longest unit name).  Re-Assessment units
+are excluded entirely — the form registers first-attempt candidates only.
 
 DEPARTMENT, CLASS NAME, ASS. FEES, FEES ARREARS and REMARKS are left blank
 for manual entry; the sheets are intentionally unprotected.
@@ -35,6 +36,12 @@ from marksheet_excel import (
 )
 
 _EXAMINING_BODY = "TVET CDACC"
+
+_HEADERS = ("S/N", "NAME", "ADM NO", "REG. NO", "LEVEL", "UNIT(S)",
+            "UNIT(S) REGISTERED NAME(S)", "ASS. FEES", "FEES ARREARS",
+            "REMARKS")
+_LAST_COL = "J"          # 10 columns, A..J
+_UNITS_COL = "G"
 
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
@@ -72,21 +79,26 @@ def _courses(data: dict) -> list[dict]:
 
 def _union_candidates(course: dict) -> list[dict]:
     """Union of candidates across the course's units, deduplicated by reg no,
-    first-seen order preserved."""
-    seen, out = set(), []
+    first-seen order preserved.  Each record accumulates the names of the
+    units the candidate appears in."""
+    by_key, order = {}, []
     for unit in course["units"]:
         for cand in sorted(unit["candidates"], key=lambda c: c["sn"]):
             key = cand.get("reg_no") or (cand.get("name"), cand.get("admission_no"))
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append({
-                "name":         cand.get("name", ""),
-                "admission_no": cand.get("admission_no", ""),
-                "reg_no":       cand.get("reg_no", ""),
-                "level":        course["course_level"],
-            })
-    return out
+            rec = by_key.get(key)
+            if rec is None:
+                rec = {
+                    "name":         cand.get("name", ""),
+                    "admission_no": cand.get("admission_no", ""),
+                    "reg_no":       cand.get("reg_no", ""),
+                    "level":        course["course_level"],
+                    "units":        [],
+                }
+                by_key[key] = rec
+                order.append(key)
+            if unit["unit_name"] not in rec["units"]:
+                rec["units"].append(unit["unit_name"])
+    return [by_key[k] for k in order]
 
 
 def _unit_labels(course: dict) -> list[str]:
@@ -118,8 +130,11 @@ def _build_form_sheet(ws, data: dict, course: dict, table_id: int,
     units       = _unit_labels(course)
 
     # ── Column widths ─────────────────────────────────────────────────────────
-    for col, width in (("A", 7.0), ("B", 34.0), ("C", 16.0), ("D", 32.0),
-                       ("E", 9.0), ("F", 13.0), ("G", 16.0), ("H", 18.0)):
+    longest_unit = max((len(u) for u in units), default=0)
+    for col, width in (("A", 7.0), ("B", 34.0), ("C", 20.0), ("D", 32.0),
+                       ("E", 9.0), ("F", 9.0),
+                       (_UNITS_COL, max(18.0, longest_unit + 4.0)),
+                       ("H", 13.0), ("I", 16.0), ("J", 18.0)):
         ws.column_dimensions[col].width = width
 
     # ── Rows 1-3 : logo ───────────────────────────────────────────────────────
@@ -136,56 +151,62 @@ def _build_form_sheet(ws, data: dict, course: dict, table_id: int,
 
     # ── Rows 4-6 : headings ───────────────────────────────────────────────────
     ws.row_dimensions[4].height = 22.0
-    ws.merge_cells("A4:H4")
+    ws.merge_cells(f"A4:{_LAST_COL}4")
     _set(ws, "A4", value=centre_name, font=_f(bold=True, size=14), align=_CTR)
 
-    ws.merge_cells("A5:H5")
+    ws.merge_cells(f"A5:{_LAST_COL}5")
     _set(ws, "A5", value="ISO 2009:2015 QUALITY MANAGEMENT SYSTEM",
          font=_f(bold=True, size=12), align=_CTR)
 
-    ws.merge_cells("A6:H6")
+    ws.merge_cells(f"A6:{_LAST_COL}6")
     _set(ws, "A6", value="SUMMATIVE ASSESSMENT REGISTRATION",
          font=_f(bold=True, size=12, color=_BLUE), align=_CTR)
 
     ws.row_dimensions[7].height = 8.0
 
-    # ── Rows 8-11 : form fields ───────────────────────────────────────────────
+    # ── Rows 8-11 : form fields (blank labels stay bare — no underscores) ────
     for row, label, value in (
-        (8,  "DEPARTMENT: ",     "_" * 45),
+        (8,  "DEPARTMENT:",      ""),
         (9,  "EXAMINING BODY: ", _EXAMINING_BODY),
         (10, "COURSE NAME: ",    course["course_name"]),
-        (11, "CLASS NAME: ",     "_" * 45),
+        (11, "CLASS NAME:",      ""),
     ):
-        ws.merge_cells(f"A{row}:H{row}")
+        ws.merge_cells(f"A{row}:{_LAST_COL}{row}")
         ws.row_dimensions[row].height = 20.0
-        _set(ws, f"A{row}", value=_rich(label, value), align=_LFT)
+        if value:
+            _set(ws, f"A{row}", value=_rich(label, value), align=_LFT)
+        else:
+            _set(ws, f"A{row}", value=label, font=_f(bold=True, size=12),
+                 align=_LFT)
 
     ws.row_dimensions[12].height = 8.0
 
     # ── Row 13 : table header ─────────────────────────────────────────────────
     ws.row_dimensions[13].height = 24.0
-    for col, label in zip("ABCDEFGH",
-                          ("S/N", "NAME", "ADM NO", "REG. NO", "LEVEL",
-                           "ASS. FEES", "FEES ARREARS", "REMARKS")):
+    for col, label in zip("ABCDEFGHIJ", _HEADERS):
         _set(ws, f"{col}13", value=label, font=_f(bold=True, size=12), align=_CTR)
-    _border_range(ws, 13, 1, 13, 8)
+    _border_range(ws, 13, 1, 13, 10)
 
     # ── Rows 14.. : candidates ────────────────────────────────────────────────
     for i, cand in enumerate(candidates, 1):
         r = 13 + i
-        ws.row_dimensions[r].height = 18.0
-        _set(ws, f"A{r}", value=i,                    font=_f(size=12), align=_CTR)
-        _set(ws, f"B{r}", value=cand["name"],         font=_f(size=12), align=_LFT)
-        _set(ws, f"C{r}", value=cand["admission_no"], font=_f(size=12), align=_LFT)
-        _set(ws, f"D{r}", value=cand["reg_no"],       font=_f(size=12), align=_LFT)
-        _set(ws, f"E{r}", value=cand["level"],        font=_f(size=12), align=_CTR)
-        _border_range(ws, r, 1, r, 8)
+        n_units = len(cand["units"])
+        ws.row_dimensions[r].height = max(18.0, 16.0 * n_units + 2.0)
+        _set(ws, f"A{r}", value=i,                       font=_f(size=12), align=_CTR)
+        _set(ws, f"B{r}", value=cand["name"],            font=_f(size=12), align=_LFT)
+        _set(ws, f"C{r}", value=cand["admission_no"],    font=_f(size=12), align=_LFT)
+        _set(ws, f"D{r}", value=cand["reg_no"],          font=_f(size=12), align=_LFT)
+        _set(ws, f"E{r}", value=cand["level"],           font=_f(size=12), align=_CTR)
+        _set(ws, f"F{r}", value=n_units,                 font=_f(size=12), align=_CTR)
+        _set(ws, f"{_UNITS_COL}{r}", value="\n".join(cand["units"]),
+             font=_f(size=12), align=_LFT)
+        _border_range(ws, r, 1, r, 10)
 
     # Excel table over header + data so the list can be filtered/sorted.
     # Column names are synced from the row-13 cells at save time.
     if candidates:
         ws.add_table(Table(displayName=f"RegCandidates{table_id}",
-                           ref=f"A13:H{13 + len(candidates)}"))
+                           ref=f"A13:{_LAST_COL}{13 + len(candidates)}"))
 
     # ── Units registered ──────────────────────────────────────────────────────
     last      = 13 + len(candidates)
@@ -197,7 +218,7 @@ def _build_form_sheet(ws, data: dict, course: dict, table_id: int,
     for i, label in enumerate(units, 1):
         r = units_row + i
         ws.row_dimensions[r].height = 18.0
-        ws.merge_cells(f"B{r}:H{r}")
+        ws.merge_cells(f"B{r}:{_LAST_COL}{r}")
         _set(ws, f"A{r}", value=i,     font=_f(size=12), align=_CTR)
         _set(ws, f"B{r}", value=label, font=_f(size=12), align=_LFT)
 
@@ -205,22 +226,23 @@ def _build_form_sheet(ws, data: dict, course: dict, table_id: int,
     prep_row = units_row + len(units) + 2
     appr_row = prep_row + 3
 
-    for row, who in ((prep_row, "PREPARED BY: "), (appr_row, "APPROVED BY: ")):
+    for row, who in ((prep_row, "PREPARED BY:"), (appr_row, "APPROVED BY:")):
         ws.row_dimensions[row].height = 22.0
-        for merge, col, label, value in (
-            (f"A{row}:C{row}", "A", who,      "_" * 22),
-            (f"D{row}:E{row}", "D", "SIGN: ", "_" * 15),
-            (f"F{row}:H{row}", "F", "DATE: ", "_" * 15),
+        for merge, col, label in (
+            (f"A{row}:C{row}", "A", who),
+            (f"D{row}:F{row}", "D", "SIGN:"),
+            (f"G{row}:{_LAST_COL}{row}", "G", "DATE:"),
         ):
             ws.merge_cells(merge)
-            _set(ws, f"{col}{row}", value=_rich(label, value), align=_LFT)
+            _set(ws, f"{col}{row}", value=label, font=_f(bold=True, size=12),
+                 align=_LFT)
 
     for row, title in ((prep_row + 1, "DEPARTMENTAL EO"), (appr_row + 1, "HOD")):
         ws.merge_cells(f"A{row}:C{row}")
         _set(ws, f"A{row}", value=title, font=_f(size=11), align=_LFT)
 
     # ── Print settings ────────────────────────────────────────────────────────
-    ws.print_area = f"A1:H{appr_row + 1}"
+    ws.print_area = f"A1:{_LAST_COL}{appr_row + 1}"
     ws.page_setup.paperSize   = 9
     ws.page_setup.orientation = "landscape"
     ws.page_setup.fitToWidth  = 1

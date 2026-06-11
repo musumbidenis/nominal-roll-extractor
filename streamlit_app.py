@@ -655,9 +655,9 @@ with st.container(border=True):
         st.markdown('<p class="export-title">📋 Registration Form</p>',
                     unsafe_allow_html=True)
         st.markdown(
-            '<p class="export-caption">One SUMMATIVE ASSESSMENT REGISTRATION '
-            'form — all candidates across all units, deduplicated by reg '
-            'no.</p>',
+            '<p class="export-caption">SUMMATIVE ASSESSMENT REGISTRATION '
+            'forms — one sheet per course, candidates in a filterable table, '
+            'deduplicated by reg no. Re-assessments excluded.</p>',
             unsafe_allow_html=True,
         )
         _rk = "_cache_regform"
@@ -665,10 +665,15 @@ with st.container(border=True):
             with st.spinner("Building registration form…"):
                 st.session_state[_rk] = build_registration_form(data, logo_path=logo_path)
 
-        n_cand = len({c["reg_no"] for u in data["units"] for c in u["candidates"]})
+        _assess = [u for u in data["units"]
+                   if not (u.get("report_type") or "").strip().lower().startswith("re")]
+        n_cand    = len({c["reg_no"] for u in _assess for c in u["candidates"]})
+        n_courses = len({((u.get("course_name") or data.get("course_name") or "").strip().upper(),
+                          (u.get("course_level") or data.get("course_level") or "").strip())
+                         for u in _assess})
         st.caption(
             f"{n_cand} candidate{'s' if n_cand != 1 else ''} · "
-            f"{data['unit_count']} unit{'s' if data['unit_count'] != 1 else ''} listed."
+            f"{max(n_courses, 1)} course sheet{'s' if n_courses != 1 else ''}."
         )
         st.markdown('<p class="fn-label">Save as</p>', unsafe_allow_html=True)
         reg_fn = st.text_input(

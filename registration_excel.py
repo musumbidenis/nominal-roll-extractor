@@ -2,18 +2,20 @@
 """
 registration_excel.py
 =====================
-Build a SUMMATIVE ASSESSMENT REGISTRATION form from extracted nominal-roll
-data.  Layout follows the departmental template (ASSESSMENT REGISTRATION
-FORM.xlsx) rebuilt in the marksheet house style, hence the imports of
-marksheet_excel's private style helpers — both exports stay visually
-consistent.
+Build a SUMMATIVE ASSESSMENT REGISTRATION workbook from extracted
+nominal-roll data.  Layout follows the departmental template (ASSESSMENT
+REGISTRATION FORM.xlsx) rebuilt in the marksheet house style, hence the
+imports of marksheet_excel's private style helpers — both exports stay
+visually consistent.
 
-One form per course: candidates are the union across all units (deduplicated
-by reg no, first-seen order, renumbered 1..N) and every unit is listed under
-UNITS REGISTERED, Re-Assessment units suffixed "(Re-Assessment)".
+One sheet tab per course: candidates are the union across that course's
+units (deduplicated by reg no, first-seen order, renumbered 1..N) and laid
+out as an Excel table so the data can be filtered/sorted.  Re-Assessment
+units are excluded entirely — the form registers first-attempt candidates
+only.
 
 DEPARTMENT, CLASS NAME, ASS. FEES, FEES ARREARS and REMARKS are left blank
-for manual entry; the sheet is intentionally unprotected.
+for manual entry; the sheets are intentionally unprotected.
 """
 
 import io
@@ -25,10 +27,11 @@ from openpyxl.drawing.image import Image as XLImage
 from openpyxl.drawing.spreadsheet_drawing import (
     AnchorMarker, OneCellAnchor, XDRPositiveSize2D,
 )
+from openpyxl.worksheet.table import Table
 
 from marksheet_excel import (
     _BLUE, _BORDER_FULL, _CENTRE_NAME, _CTR, _EMU, _LFT, _LOGO_PATH,
-    _border_range, _f, _rich, _set,
+    _border_range, _f, _rich, _safe_sheet_name, _set,
 )
 
 _EXAMINING_BODY = "TVET CDACC"
@@ -36,18 +39,42 @@ _EXAMINING_BODY = "TVET CDACC"
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
 
+def _is_reassessment(unit: dict) -> bool:
+    return (unit.get("report_type") or "").strip().lower().startswith("re")
+
+
 def _level_num(course_level: str) -> str:
     """'Level 5' → '5'; bare numbers pass through; no digit → raw trimmed."""
     m = re.search(r"\d+", course_level or "")
     return m.group(0) if m else (course_level or "").strip()
 
 
-def _union_candidates(data: dict) -> list[dict]:
-    """Union of candidates across all units, deduplicated by reg no,
+def _courses(data: dict) -> list[dict]:
+    """Group assessment units by course (name + level), roll order preserved.
+    Re-Assessment units are dropped."""
+    groups, order = {}, []
+    for u in data.get("units", []):
+        if _is_reassessment(u):
+            continue
+        cname = (u.get("course_name") or data.get("course_name") or "").strip()
+        clvl  = _level_num(u.get("course_level") or data.get("course_level") or "")
+        key   = (cname.upper(), clvl)
+        if key not in groups:
+            groups[key] = {"course_name": cname, "course_level": clvl, "units": []}
+            order.append(key)
+        groups[key]["units"].append(u)
+    if not order:   # roll held nothing but re-assessments
+        return [{"course_name": (data.get("course_name") or "").strip(),
+                 "course_level": _level_num(data.get("course_level") or ""),
+                 "units": []}]
+    return [groups[k] for k in order]
+
+
+def _union_candidates(course: dict) -> list[dict]:
+    """Union of candidates across the course's units, deduplicated by reg no,
     first-seen order preserved."""
     seen, out = set(), []
-    for unit in data.get("units", []):
-        lvl = _level_num(unit.get("course_level") or data.get("course_level") or "")
+    for unit in course["units"]:
         for cand in sorted(unit["candidates"], key=lambda c: c["sn"]):
             key = cand.get("reg_no") or (cand.get("name"), cand.get("admission_no"))
             if key in seen:
@@ -57,36 +84,42 @@ def _union_candidates(data: dict) -> list[dict]:
                 "name":         cand.get("name", ""),
                 "admission_no": cand.get("admission_no", ""),
                 "reg_no":       cand.get("reg_no", ""),
-                "level":        lvl,
+                "level":        course["course_level"],
             })
     return out
 
 
-def _unit_labels(data: dict) -> list[str]:
-    """All units in roll order, deduplicated by (report_type, unit_name)."""
+def _unit_labels(course: dict) -> list[str]:
+    """The course's unit names in roll order, deduplicated."""
     seen, labels = set(), []
-    for u in data.get("units", []):
-        rt  = (u.get("report_type") or "").strip()
-        key = (rt, u["unit_name"])
-        if key in seen:
+    for u in course["units"]:
+        if u["unit_name"] in seen:
             continue
-        seen.add(key)
-        suffix = "  (Re-Assessment)" if rt.lower().startswith("re") else ""
-        labels.append(f"{u['unit_name']}{suffix}")
+        seen.add(u["unit_name"])
+        labels.append(u["unit_name"])
     return labels
+
+
+def _sheet_title(course: dict) -> str:
+    """Course name (+ level) trimmed so the level survives the 31-char cap."""
+    cname, clvl = course["course_name"] or "Registration", course["course_level"]
+    if not clvl:
+        return cname
+    suffix = f" L{clvl}"
+    return cname[: 31 - len(suffix)].rstrip() + suffix
 
 
 # ── Sheet builder ─────────────────────────────────────────────────────────────
 
-def _build_form_sheet(ws, data: dict, logo_path: str = None):
+def _build_form_sheet(ws, data: dict, course: dict, table_id: int,
+                      logo_path: str = None):
     centre_name = data.get("centre_name") or _CENTRE_NAME
-    course_name = data.get("course_name") or ""
-    candidates  = _union_candidates(data)
-    units       = _unit_labels(data)
+    candidates  = _union_candidates(course)
+    units       = _unit_labels(course)
 
     # ── Column widths ─────────────────────────────────────────────────────────
-    for col, width in (("A", 6.0), ("B", 30.0), ("C", 14.0), ("D", 30.0),
-                       ("E", 8.0), ("F", 11.0), ("G", 14.0), ("H", 16.0)):
+    for col, width in (("A", 7.0), ("B", 34.0), ("C", 16.0), ("D", 32.0),
+                       ("E", 9.0), ("F", 13.0), ("G", 16.0), ("H", 18.0)):
         ws.column_dimensions[col].width = width
 
     # ── Rows 1-3 : logo ───────────────────────────────────────────────────────
@@ -120,7 +153,7 @@ def _build_form_sheet(ws, data: dict, logo_path: str = None):
     for row, label, value in (
         (8,  "DEPARTMENT: ",     "_" * 45),
         (9,  "EXAMINING BODY: ", _EXAMINING_BODY),
-        (10, "COURSE NAME: ",    course_name),
+        (10, "COURSE NAME: ",    course["course_name"]),
         (11, "CLASS NAME: ",     "_" * 45),
     ):
         ws.merge_cells(f"A{row}:H{row}")
@@ -147,6 +180,12 @@ def _build_form_sheet(ws, data: dict, logo_path: str = None):
         _set(ws, f"D{r}", value=cand["reg_no"],       font=_f(size=12), align=_LFT)
         _set(ws, f"E{r}", value=cand["level"],        font=_f(size=12), align=_CTR)
         _border_range(ws, r, 1, r, 8)
+
+    # Excel table over header + data so the list can be filtered/sorted.
+    # Column names are synced from the row-13 cells at save time.
+    if candidates:
+        ws.add_table(Table(displayName=f"RegCandidates{table_id}",
+                           ref=f"A13:H{13 + len(candidates)}"))
 
     # ── Units registered ──────────────────────────────────────────────────────
     last      = 13 + len(candidates)
@@ -203,12 +242,13 @@ def _build_form_sheet(ws, data: dict, logo_path: str = None):
 # ── Public entry point ────────────────────────────────────────────────────────
 
 def build_registration_form(data: dict, logo_path: str = None) -> bytes:
-    """One consolidated registration form for the whole course.  Returns
-    file bytes."""
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Registration"
-    _build_form_sheet(ws, data, logo_path)
+    """One registration sheet per course (Re-Assessment units excluded).
+    Returns file bytes."""
+    wb, used = Workbook(), set()
+    wb.remove(wb.active)
+    for i, course in enumerate(_courses(data), 1):
+        ws = wb.create_sheet(_safe_sheet_name(_sheet_title(course), used))
+        _build_form_sheet(ws, data, course, table_id=i, logo_path=logo_path)
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()

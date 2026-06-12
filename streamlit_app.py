@@ -28,7 +28,7 @@ st.set_page_config(
     page_title="Nominal Roll → Marksheet",
     page_icon="📝",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 _VERSION = "v1.0"
@@ -312,6 +312,68 @@ def _save_logo(filename: str, blob: bytes) -> str:
     return path
 
 
+def _logo_picker_ui() -> str:
+    """Render the upload + choose-logo UI and return the selected logo path.
+    Shared by the views that stamp a school logo (Formative, Class Forms)."""
+    st.markdown('<p class="sec-lbl">School Logo</p>', unsafe_allow_html=True)
+
+    with st.container(border=True):
+        logo_up_col, logo_pick_col = st.columns([1, 1], gap="large")
+
+        # ── Upload a new logo (saved to the library for next time) ────────────
+        with logo_up_col:
+            st.markdown('<p class="export-title">⬆ Upload a logo</p>',
+                        unsafe_allow_html=True)
+            st.markdown(
+                '<p class="export-caption">PNG or JPG. It is saved to your logo '
+                'library, so next time just pick it from the list — no re-upload.</p>',
+                unsafe_allow_html=True,
+            )
+            _new_logo = st.file_uploader(
+                "Upload school logo", type=["png", "jpg", "jpeg"],
+                key="logo_upload", label_visibility="collapsed",
+            )
+            if _new_logo is not None:
+                _sig = f"{_new_logo.name}:{_new_logo.size}"
+                if st.session_state.get("_logo_saved_sig") != _sig:
+                    _saved = _save_logo(_new_logo.name, _new_logo.getvalue())
+                    st.session_state["_logo_saved_sig"] = _sig
+                    st.session_state["logo_choice"]     = _logo_label(_saved)
+                    st.success(f"Saved “{_logo_label(_saved)}” to your logo library.")
+
+        # ── Choose from the saved library ─────────────────────────────────────
+        with logo_pick_col:
+            st.markdown('<p class="export-title">🏫 Choose logo</p>',
+                        unsafe_allow_html=True)
+
+            _options  = [("Default (RVNP)", _DEFAULT_LOGO)] + _list_saved_logos()
+            _by_label = {lbl: pth for lbl, pth in _options}
+            _labels   = list(_by_label.keys())
+
+            if st.session_state.get("logo_choice") not in _labels:
+                st.session_state["logo_choice"] = _labels[0]
+
+            _choice   = st.selectbox(
+                "Choose logo", _labels, key="logo_choice",
+                label_visibility="collapsed",
+            )
+            logo_path = _by_label.get(_choice, _DEFAULT_LOGO)
+
+            if os.path.exists(logo_path):
+                st.image(logo_path, width=120, caption=_choice)
+            else:
+                st.caption("⚠ Logo file not found — the default will be used.")
+                logo_path = _DEFAULT_LOGO
+
+    # Rebuild logo-dependent exports whenever the chosen logo changes.
+    if st.session_state.get("_active_logo") != logo_path:
+        for _k in ("_cache_zip", "_cache_classzip"):
+            st.session_state.pop(_k, None)
+        st.session_state["_active_logo"] = logo_path
+
+    return logo_path
+
+
 def _gen_zip(data: dict, logo_path: str = None) -> bytes:
     # Plan each file's folder path + filename up front so we can detect
     # collisions (two units sharing a name within the same course folder).
@@ -370,6 +432,12 @@ def _gen_summative_zip(data: dict) -> tuple[bytes, int]:
                 name = f"{stem} ({seen[full]}){ext}"
             zf.writestr(f"{path}/{name}", file_bytes)
     return buf.getvalue(), len(planned)
+
+
+def _subset_units(data: dict, indices: list) -> dict:
+    """A shallow copy of `data` carrying only the units at `indices`."""
+    units = [data["units"][i] for i in indices]
+    return {**data, "units": units, "unit_count": len(units)}
 
 
 def _gen_class_zip(data: dict, logo_path: str = None) -> tuple[bytes, int]:
@@ -503,7 +571,7 @@ if removed or added:
     st.session_state.extraction_done = bool(processed)
     st.session_state.data            = _merge_data(list(processed.values()))
     for key in list(st.session_state.keys()):
-        if key.startswith("_cache_"):
+        if key.startswith("_cache_") or key.startswith("summ_sel_"):
             del st.session_state[key]
 
 if not processed:
@@ -570,78 +638,50 @@ with st.container(border=True):
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── School logo ───────────────────────────────────────────────────────────────
-st.markdown('<p class="sec-lbl">School Logo</p>', unsafe_allow_html=True)
+# ── Unit breakdown table (shared overview) ────────────────────────────────────
+st.markdown("<br>", unsafe_allow_html=True)
+st.markdown('<p class="sec-lbl">Unit Breakdown</p>', unsafe_allow_html=True)
 
-with st.container(border=True):
-    logo_up_col, logo_pick_col = st.columns([1, 1], gap="large")
+st.dataframe(
+    [{"Unit Name":   u["unit_name"],
+      "Report Type": u.get("report_type") or "",
+      "Candidates":  u["candidate_count"]}
+     for u in data["units"]],
+    width="stretch",
+    hide_index=True,
+    column_config={
+        "Unit Name":   st.column_config.TextColumn(width="large"),
+        "Report Type": st.column_config.TextColumn(width="medium"),
+        "Candidates":  st.column_config.NumberColumn(width="small"),
+    },
+)
 
-    # ── Upload a new logo (saved to the library for next time) ─────────────────
-    with logo_up_col:
-        st.markdown('<p class="export-title">⬆ Upload a logo</p>',
-                    unsafe_allow_html=True)
-        st.markdown(
-            '<p class="export-caption">PNG or JPG. It is saved to your logo '
-            'library, so next time just pick it from the list — no re-upload.</p>',
-            unsafe_allow_html=True,
-        )
-        _new_logo = st.file_uploader(
-            "Upload school logo", type=["png", "jpg", "jpeg"],
-            key="logo_upload", label_visibility="collapsed",
-        )
-        if _new_logo is not None:
-            _sig = f"{_new_logo.name}:{_new_logo.size}"
-            if st.session_state.get("_logo_saved_sig") != _sig:
-                _saved = _save_logo(_new_logo.name, _new_logo.getvalue())
-                st.session_state["_logo_saved_sig"] = _sig
-                st.session_state["logo_choice"]     = _logo_label(_saved)
-                st.success(f"Saved “{_logo_label(_saved)}” to your logo library.")
+# ── Sidebar navigation ────────────────────────────────────────────────────────
+_VIEW_FORMATIVE = "📦 Formative Marksheets"
+_VIEW_SUMMATIVE = "📑 Summative Marksheets"
+_VIEW_CLASSES   = "🏫 Class Forms"
+_VIEWS          = [_VIEW_FORMATIVE, _VIEW_SUMMATIVE, _VIEW_CLASSES]
 
-    # ── Choose from the saved library ─────────────────────────────────────────
-    with logo_pick_col:
-        st.markdown('<p class="export-title">🏫 Choose logo</p>',
-                    unsafe_allow_html=True)
-
-        _options  = [("Default (RVNP)", _DEFAULT_LOGO)] + _list_saved_logos()
-        _by_label = {lbl: pth for lbl, pth in _options}
-        _labels   = list(_by_label.keys())
-
-        if st.session_state.get("logo_choice") not in _labels:
-            st.session_state["logo_choice"] = _labels[0]
-
-        _choice   = st.selectbox(
-            "Choose logo", _labels, key="logo_choice",
-            label_visibility="collapsed",
-        )
-        logo_path = _by_label.get(_choice, _DEFAULT_LOGO)
-
-        if os.path.exists(logo_path):
-            st.image(logo_path, width=120, caption=_choice)
-        else:
-            st.caption("⚠ Logo file not found — the default will be used.")
-            logo_path = _DEFAULT_LOGO
-
-# Rebuild the exports whenever the chosen logo changes.
-if st.session_state.get("_active_logo") != logo_path:
-    for _k in ("_cache_zip", "_cache_classzip"):
-        st.session_state.pop(_k, None)
-    st.session_state["_active_logo"] = logo_path
+with st.sidebar:
+    st.markdown('<p class="sec-lbl">Views</p>', unsafe_allow_html=True)
+    _view = st.radio("View", _VIEWS, label_visibility="collapsed", key="nav_view")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── Export ────────────────────────────────────────────────────────────────────
-st.markdown('<p class="sec-lbl">Export Marksheets</p>', unsafe_allow_html=True)
+# ── Formative Marksheets ──────────────────────────────────────────────────────
+if _view == _VIEW_FORMATIVE:
+    logo_path = _logo_picker_ui()
 
-with st.container(border=True):
-    zip_col, summ_col, cls_col = st.columns([1, 1, 1], gap="large")
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<p class="sec-lbl">Formative Marksheets</p>', unsafe_allow_html=True)
 
-    # ── ZIP: one xlsx per unit ────────────────────────────────────────────────
-    with zip_col:
+    with st.container(border=True):
         st.markdown('<p class="export-title">📦 ZIP — One file per unit</p>',
                     unsafe_allow_html=True)
         st.markdown(
-            '<p class="export-caption">Each unit gets its own .xlsx marksheet '
-            'with candidate list and empty marks columns.</p>',
+            '<p class="export-caption">Each unit gets its own .xlsx Continuous '
+            'Assessment marksheet with the candidate list and empty marks '
+            'columns. Carries the chosen school logo.</p>',
             unsafe_allow_html=True,
         )
         _zk = "_cache_zip"
@@ -667,48 +707,84 @@ with st.container(border=True):
             type="primary",
         )
 
-    # ── Summative moderated-practical sheets: one xlsx per unit, zipped ───────
-    with summ_col:
-        st.markdown('<p class="export-title">📑 Summative — ZIP</p>',
-                    unsafe_allow_html=True)
-        st.markdown(
-            '<p class="export-caption">CDACC Summative Assessment Moderated '
-            'Practical Marks Sheet per unit — internal, external & moderated '
-            'marks columns. Carries the CDACC logo.</p>',
-            unsafe_allow_html=True,
-        )
-        _sk = "_cache_summzip"
-        if _sk not in st.session_state:
+# ── Summative Marksheets (pick the units to generate) ─────────────────────────
+elif _view == _VIEW_SUMMATIVE:
+    st.markdown('<p class="sec-lbl">Summative Marksheets</p>', unsafe_allow_html=True)
+    st.caption(
+        "Tick the units you want, then download. CDACC Summative Assessment "
+        "Moderated Practical Marks Sheet — one .xlsx per unit, carrying the "
+        "CDACC logo."
+    )
+
+    units = data["units"]
+    with st.container(border=True):
+        _b1, _b2, _sp = st.columns([1, 1, 4])
+        if _b1.button("Select all", width="stretch"):
+            for _i in range(len(units)):
+                st.session_state[f"summ_sel_{_i}"] = True
+        if _b2.button("Clear", width="stretch"):
+            for _i in range(len(units)):
+                st.session_state[f"summ_sel_{_i}"] = False
+
+        selected = []
+        for _i, u in enumerate(units):
+            rt = u.get("report_type") or "—"
+            label = (f"{u['unit_name']}  ·  {rt}  ·  "
+                     f"{u['candidate_count']} candidate"
+                     f"{'s' if u['candidate_count'] != 1 else ''}")
+            if st.checkbox(label, key=f"summ_sel_{_i}"):
+                selected.append(_i)
+
+    if not selected:
+        st.info("Tick at least one unit above to generate summative marksheets.",
+                icon="📋")
+    else:
+        sig = tuple(selected)
+        if st.session_state.get("_cache_summ_sig") != sig:
             with st.spinner("Building summative sheets…"):
-                st.session_state[_sk] = _gen_summative_zip(data)
-        _szip, _nsumm = st.session_state[_sk]
+                st.session_state["_cache_summ_zip"] = _gen_summative_zip(
+                    _subset_units(data, selected))
+            st.session_state["_cache_summ_sig"] = sig
+        _szip, _nsumm = st.session_state["_cache_summ_zip"]
 
-        st.caption(
-            f"{_nsumm} file{'s' if _nsumm != 1 else ''} inside — one per unit."
-        )
-        st.markdown('<p class="fn-label">Save as</p>', unsafe_allow_html=True)
-        summ_fn = st.text_input(
-            "Summative filename", value=f"{stem_default}_summative",
-            key="fn_summ", label_visibility="collapsed",
-        )
-        st.download_button(
-            label="⬇  Download Summative",
-            data=_szip,
-            file_name=f"{summ_fn.strip() or stem_default}.zip",
-            mime="application/zip",
-            width="stretch",
-            type="primary",
-        )
+        with st.container(border=True):
+            st.markdown('<p class="export-title">📑 Summative — ZIP</p>',
+                        unsafe_allow_html=True)
+            st.caption(
+                f"{_nsumm} file{'s' if _nsumm != 1 else ''} for "
+                f"{len(selected)} selected unit{'s' if len(selected) != 1 else ''} "
+                "— split into Assessment / Re-Assessment folders."
+            )
+            st.markdown('<p class="fn-label">Save as</p>', unsafe_allow_html=True)
+            summ_fn = st.text_input(
+                "Summative filename", value=f"{stem_default}_summative",
+                key="fn_summ", label_visibility="collapsed",
+            )
+            st.download_button(
+                label="⬇  Download Summative",
+                data=_szip,
+                file_name=f"{summ_fn.strip() or stem_default}.zip",
+                mime="application/zip",
+                width="stretch",
+                type="primary",
+            )
 
-    # ── Class registration forms: one xlsx per class, zipped ─────────────────
-    with cls_col:
+# ── Class Forms ───────────────────────────────────────────────────────────────
+else:
+    logo_path = _logo_picker_ui()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<p class="sec-lbl">Class Forms</p>', unsafe_allow_html=True)
+
+    with st.container(border=True):
         st.markdown('<p class="export-title">🏫 Class Forms — ZIP</p>',
                     unsafe_allow_html=True)
         st.markdown(
-            '<p class="export-caption">Classes are read from admission '
-            'numbers (the intake code after the first “/”, e.g. 24S). One '
-            'registration form per class, named after its course (e.g. '
-            '“ICT L6 Class 24S”).</p>',
+            '<p class="export-caption">Per-class SUMMATIVE ASSESSMENT '
+            'REGISTRATION forms. Classes are read from admission numbers (the '
+            'intake code after the first “/”, e.g. 24S); each form is named '
+            'after its course (e.g. “ICT L6 Class 24S”) and carries the chosen '
+            'school logo.</p>',
             unsafe_allow_html=True,
         )
         _ck = "_cache_classzip"
@@ -731,26 +807,3 @@ with st.container(border=True):
             width="stretch",
             type="primary",
         )
-
-# ── Unit breakdown table ──────────────────────────────────────────────────────
-st.markdown("<br>", unsafe_allow_html=True)
-st.markdown('<p class="sec-lbl">Unit Breakdown</p>', unsafe_allow_html=True)
-
-rows = []
-for u in data["units"]:
-    rows.append({
-        "Unit Name":   u["unit_name"],
-        "Report Type": u.get("report_type") or "",
-        "Candidates":  u["candidate_count"],
-    })
-
-st.dataframe(
-    rows,
-    width="stretch",
-    hide_index=True,
-    column_config={
-        "Unit Name":   st.column_config.TextColumn(width="large"),
-        "Report Type": st.column_config.TextColumn(width="medium"),
-        "Candidates":  st.column_config.NumberColumn(width="small"),
-    },
-)

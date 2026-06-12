@@ -21,6 +21,7 @@ import streamlit as st
 from extract_nominal import extract
 from marksheet_excel import build_marksheet_per_unit
 from registration_excel import build_class_forms
+from summative_excel import build_summative_per_unit
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -342,6 +343,35 @@ def _gen_zip(data: dict, logo_path: str = None) -> bytes:
     return buf.getvalue()
 
 
+def _gen_summative_zip(data: dict) -> tuple[bytes, int]:
+    """ZIP of summative moderated-practical marks sheets, one per unit, split
+    into Assessment/Re-Assessment folders like the marksheet ZIP.  The sheet
+    carries the fixed CDACC logo, so no school logo is threaded.
+    Returns (zip_bytes, n_units)."""
+    planned = [
+        (f'{_folder_for(unit)}/'
+         f'{_safe_folder(unit.get("course_name") or "Unknown Course")}',
+         filename, file_bytes)
+        for unit, (filename, file_bytes) in zip(
+            data["units"], build_summative_per_unit(data)
+        )
+    ]
+
+    totals = Counter(f"{path}/{name}".lower() for path, name, _ in planned)
+    seen = {}
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path, name, file_bytes in planned:
+            full = f"{path}/{name}".lower()
+            if totals[full] > 1:
+                seen[full] = seen.get(full, 0) + 1
+                stem, ext = os.path.splitext(name)
+                name = f"{stem} ({seen[full]}){ext}"
+            zf.writestr(f"{path}/{name}", file_bytes)
+    return buf.getvalue(), len(planned)
+
+
 def _gen_class_zip(data: dict, logo_path: str = None) -> tuple[bytes, int]:
     """ZIP of per-class registration forms.  Returns (zip_bytes, n_classes).
     Class names are unique per course by construction; the numbering guard
@@ -603,7 +633,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 st.markdown('<p class="sec-lbl">Export Marksheets</p>', unsafe_allow_html=True)
 
 with st.container(border=True):
-    zip_col, cls_col = st.columns([1, 1], gap="large")
+    zip_col, summ_col, cls_col = st.columns([1, 1, 1], gap="large")
 
     # ── ZIP: one xlsx per unit ────────────────────────────────────────────────
     with zip_col:
@@ -632,6 +662,39 @@ with st.container(border=True):
             label="⬇  Download ZIP",
             data=st.session_state[_zk],
             file_name=f"{zip_fn.strip() or stem_default}.zip",
+            mime="application/zip",
+            width="stretch",
+            type="primary",
+        )
+
+    # ── Summative moderated-practical sheets: one xlsx per unit, zipped ───────
+    with summ_col:
+        st.markdown('<p class="export-title">📑 Summative — ZIP</p>',
+                    unsafe_allow_html=True)
+        st.markdown(
+            '<p class="export-caption">CDACC Summative Assessment Moderated '
+            'Practical Marks Sheet per unit — internal, external & moderated '
+            'marks columns. Carries the CDACC logo.</p>',
+            unsafe_allow_html=True,
+        )
+        _sk = "_cache_summzip"
+        if _sk not in st.session_state:
+            with st.spinner("Building summative sheets…"):
+                st.session_state[_sk] = _gen_summative_zip(data)
+        _szip, _nsumm = st.session_state[_sk]
+
+        st.caption(
+            f"{_nsumm} file{'s' if _nsumm != 1 else ''} inside — one per unit."
+        )
+        st.markdown('<p class="fn-label">Save as</p>', unsafe_allow_html=True)
+        summ_fn = st.text_input(
+            "Summative filename", value=f"{stem_default}_summative",
+            key="fn_summ", label_visibility="collapsed",
+        )
+        st.download_button(
+            label="⬇  Download Summative",
+            data=_szip,
+            file_name=f"{summ_fn.strip() or stem_default}.zip",
             mime="application/zip",
             width="stretch",
             type="primary",

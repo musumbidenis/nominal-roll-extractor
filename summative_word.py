@@ -50,6 +50,16 @@ _HEADERS = ["S/N", "Candidate's\nRegistration Code", "Candidate's Name",
 # candidate-table column widths, in twips, taken verbatim from the sample
 _COL_TW  = [920, 3678, 3173, 2662, 2662, 2293]
 
+# Course/Qualification Code, Unit Code and Date of Assessment are reproduced
+# verbatim from the sample: blank, filled with the ellipsis (…) leader it uses.
+_ELL          = "…"
+_COURSE_CODE  = "Course/Qualification Code: " + _ELL * 22 + "."
+_UNIT_CODE    = "Unit Code: " + _ELL * 29 + "."
+_DATE_ASSESS  = "Date of Assessment:  From " + _ELL * 10 + "." + "  to  " + _ELL * 10
+
+# Shown as the locked content control's label when a user clicks the area.
+_LOCK_MSG = "Locked — you can add this data by hand after printing."
+
 
 def _dots(n: int = 28) -> str:
     return "." * n
@@ -152,8 +162,10 @@ def _keep_table_together(table):
                     _keep_next(p)
 
 
-def _lock_table(table, sdt_id: int):
-    """Wrap a table in a content control locked against content edits."""
+def _lock_table(table, sdt_id: int, message: str):
+    """Wrap a table in a content control locked against content edits.  The
+    message becomes the control's title/tag, shown as a label when the user
+    clicks the locked area (so they're told they can fill it in after print)."""
     tbl = table._tbl
     parent = tbl.getparent()
     idx = parent.index(tbl)
@@ -161,6 +173,9 @@ def _lock_table(table, sdt_id: int):
 
     sdt = OxmlElement("w:sdt")
     sdt_pr = OxmlElement("w:sdtPr")
+    # sdtPr child order: alias, tag, id, lock
+    alias = OxmlElement("w:alias"); alias.set(qn("w:val"), message); sdt_pr.append(alias)
+    tag = OxmlElement("w:tag"); tag.set(qn("w:val"), message); sdt_pr.append(tag)
     _id = OxmlElement("w:id"); _id.set(qn("w:val"), str(sdt_id)); sdt_pr.append(_id)
     lock = OxmlElement("w:lock"); lock.set(qn("w:val"), "sdtContentLocked")
     sdt_pr.append(lock)
@@ -205,20 +220,24 @@ def build_summative_doc(doc, data: dict, unit: dict):
     doc.add_paragraph()
 
     # ── Info grid (Plain Table 4, no shading, full width) ─────────────────────
+    # Left column: Code / Code / Code / Date — the latter three taken verbatim
+    # from the sample (blank, ellipsis leader). Right column: filled from data.
     info = doc.add_table(rows=4, cols=2, style="Plain Table 4")
-    rows = [
-        (("Assessment Center Code:  ",     centre_code or _dots()),
-         ("Assessment Center Name:  ",     centre_name or _dots())),
-        (("Course/Qualification Code:  ",  _dots()),
-         ("Course/Qualification Title:  ", course_full or _dots())),
-        (("Unit Code:  ",                  unit_code or _dots()),
-         ("Unit Title:  ",                 unit_name or _dots())),
-        (("Date of Assessment:  From ",    _dots(12) + ".  to  " + _dots(12)),
-         ("Assessment Series:  ",          series or _dots())),
+    left_cells = [
+        [(True, "Assessment Center Code:  "), (False, centre_code or _dots())],
+        [(False, _COURSE_CODE)],
+        [(False, _UNIT_CODE)],
+        [(False, _DATE_ASSESS)],
     ]
-    for r, (left, right) in enumerate(rows):
-        _cell(info.rows[r].cells[0], [(True, left[0]),  (False, left[1])])
-        _cell(info.rows[r].cells[1], [(True, right[0]), (False, right[1])])
+    right_cells = [
+        [(True, "Assessment Center Name:  "),     (False, centre_name or _dots())],
+        [(True, "Course/Qualification Title:  "), (False, course_full or _dots())],
+        [(True, "Unit Title:  "),                 (False, unit_name or _dots())],
+        [(True, "Assessment Series:  "),          (False, series or _dots())],
+    ]
+    for r in range(4):
+        _cell(info.rows[r].cells[0], left_cells[r])
+        _cell(info.rows[r].cells[1], right_cells[r])
         _row_height(info.rows[r], 0.43)
     _fix_widths(info, [7699, 7699])
     _no_band(info)
@@ -259,8 +278,8 @@ def build_summative_doc(doc, data: dict, unit: dict):
     _keep_table_together(sig)
 
     # ── Lock the two side tables; the candidate list stays editable ───────────
-    _lock_table(info, 101)
-    _lock_table(sig, 102)
+    _lock_table(info, 101, _LOCK_MSG)
+    _lock_table(sig, 102, _LOCK_MSG)
 
 
 # ── Public entry point ────────────────────────────────────────────────────────

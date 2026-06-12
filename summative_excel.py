@@ -11,8 +11,8 @@ Deviation row, and a three-signatory footer (Internal Assessor, External
 Verifier, Assessment Centre Manager).  The sheet always carries the fixed
 CDACC logo — this is a national CDACC document, not a school one.
 
-Marks columns (Internal / External / Moderated) and the Mean Deviation cell
-are the only editable cells; the rest is protected with password 2026.
+The sheet is left unprotected so assessors can fill marks, signatures and
+the mean deviation directly.  Layout strictly follows summative_sample.xlsx.
 
 Reuses the marksheet house-style helpers so both exports stay consistent.
 """
@@ -30,7 +30,7 @@ from openpyxl.drawing.spreadsheet_drawing import (
 from openpyxl.styles import Border, PatternFill
 
 from marksheet_excel import (
-    _BLUE, _BORDER_FULL, _CTR, _EMU, _FONT, _LFT, _NONE, _THIN, _UNLOCKED,
+    _BLUE, _BORDER_FULL, _CTR, _EMU, _FONT, _LFT, _NONE, _THIN,
     _border_range, _f, _safe_filename, _safe_sheet_name, _set,
 )
 
@@ -113,7 +113,7 @@ def build_summative_sheet(ws, data: dict, unit: dict, logo_path: str = None):
     ws.merge_cells("A4:F4")
     _set(ws, "A4",
          value="TVET CURRICULUM DEVELOPMENT, ASSESSMENT AND CERTIFICATION COUNCIL (TVET CDACC)",
-         font=_f(bold=True, size=12), align=_CTR,
+         font=_f(bold=True, size=13), align=_CTR,
          border=Border(left=_THIN, right=_THIN, top=_NONE, bottom=_THIN))
 
     # ── Row 5 : Document title ────────────────────────────────────────────────
@@ -121,7 +121,7 @@ def build_summative_sheet(ws, data: dict, unit: dict, logo_path: str = None):
     ws.merge_cells("A5:F5")
     _set(ws, "A5",
          value="SUMMATIVE ASSESSMENT MODERATED PRACTICAL MARKS SHEETS PER UNIT OF COMPETENCY",
-         font=_f(bold=True, size=11, color=_BLUE), align=_CTR,
+         font=_f(bold=True, size=12, color=_BLUE), align=_CTR,
          border=Border(left=_THIN, right=_THIN, top=_NONE, bottom=_THIN))
 
     # ── Row 6 : Reference code ────────────────────────────────────────────────
@@ -132,7 +132,7 @@ def build_summative_sheet(ws, data: dict, unit: dict, logo_path: str = None):
          border=Border(left=_THIN, right=_THIN, top=_NONE, bottom=_THIN))
 
     # ── Row 7 : Course/Qualification Code | Title ─────────────────────────────
-    ws.row_dimensions[7].height = 25.0
+    ws.row_dimensions[7].height = 20.0
     ws.merge_cells("A7:C7")
     ws.merge_cells("D7:F7")
     ws["A7"].value     = _rich((True,  "Course/Qualification Code:  "),
@@ -185,31 +185,57 @@ def build_summative_sheet(ws, data: dict, unit: dict, logo_path: str = None):
     _full_border(ws, 10, 1, 10, 3)
     _full_border(ws, 10, 4, 10, 6)
 
-    # ── Row 11 : Column headers ───────────────────────────────────────────────
-    ws.row_dimensions[11].height = 18.0
+    # ── Row 11 : Internal Assessor name | Mean Deviation ──────────────────────
+    ws.row_dimensions[11].height = 20.0
+    ws.merge_cells("A11:D11")
+    ws.merge_cells("E11:F11")
+    ws["A11"].value     = _rich((True,  "1. Name of Internal Assessor:  "),
+                                (False, _dots(50)))
+    ws["A11"].alignment = _LFT
+    ws["E11"].value     = _rich((True,  "Mean Deviation:  "),
+                                (False, _dots(18)))
+    ws["E11"].alignment = _LFT
+    _full_border(ws, 11, 1, 11, 4)
+    _full_border(ws, 11, 5, 11, 6)
+
+    # ── Row 12 : External Verifier name ───────────────────────────────────────
+    ws.row_dimensions[12].height = 20.0
+    ws.merge_cells("A12:F12")
+    ws["A12"].value     = _rich((True,  "2. Name of External Verifier:  "),
+                                (False, _dots(80)))
+    ws["A12"].alignment = _LFT
+    _full_border(ws, 12, 1, 12, 6)
+
+    # ── Row 13 : Assessment Centre Manager name ───────────────────────────────
+    ws.row_dimensions[13].height = 20.0
+    ws.merge_cells("A13:F13")
+    ws["A13"].value     = _rich((True,  "3. Name of Assessment Center Manager/Officer:  "),
+                                (False, _dots(60)))
+    ws["A13"].alignment = _LFT
+    _full_border(ws, 13, 1, 13, 6)
+
+    # ── Row 14 : Column headers ───────────────────────────────────────────────
+    ws.row_dimensions[14].height = 42.0
     for coord, label in (
-        ("A11", "S/N"),
-        ("B11", "Candidate's\nRegistration Code"),
-        ("C11", "Candidate's Name"),
-        ("D11", "Internal Assessor's Marks\n(All Candidates) (100%)"),
-        ("E11", "External Verifier's\n(Sampled Candidates) (100%)"),
-        ("F11", "Moderated Marks\n(100%)"),
+        ("A14", "S/N"),
+        ("B14", "Candidate's\nRegistration Code"),
+        ("C14", "Candidate's Name"),
+        ("D14", "Internal Assessor's Marks\n(All Candidates) (100%)"),
+        ("E14", "External Verifier's\n(Sampled Candidates) (100%)"),
+        ("F14", "Moderated Marks\n(100%)"),
     ):
         _set(ws, coord, value=label,
              font=_f(bold=True, size=11), align=_CTR,
              fill=_COL_FILL, border=_BORDER_FULL)
 
-    # ── Data rows from row 12 ─────────────────────────────────────────────────
+    # ── Data rows from row 15 ─────────────────────────────────────────────────
     for i, cand in enumerate(candidates):
-        r = 12 + i
+        r = 15 + i
         ws.row_dimensions[r].height = 18.0
 
         ws.cell(row=r, column=1, value=cand["sn"]).alignment     = _CTR
         ws.cell(row=r, column=2, value=cand["reg_no"]).alignment = _LFT
         ws.cell(row=r, column=3, value=cand["name"]).alignment   = _LFT
-        ws.cell(row=r, column=4).protection = _UNLOCKED
-        ws.cell(row=r, column=5).protection = _UNLOCKED
-        ws.cell(row=r, column=6).protection = _UNLOCKED
 
         for c in range(1, 7):
             ws.cell(row=r, column=c).font   = _f(size=11)
@@ -217,68 +243,53 @@ def build_summative_sheet(ws, data: dict, unit: dict, logo_path: str = None):
         for c in (1, 4, 5, 6):
             ws.cell(row=r, column=c).alignment = _CTR
 
-    last = 11 + len(candidates)   # last candidate row
-
-    # ── Mean Deviation row ────────────────────────────────────────────────────
-    mean_row = last + 2
-    ws.row_dimensions[mean_row].height = 20.0
-    ws.merge_cells(f"A{mean_row}:B{mean_row}")
-    ws.merge_cells(f"C{mean_row}:F{mean_row}")
-    ws[f"A{mean_row}"].value     = _rich((True, "Mean Deviation:  "), (False, _dots(18)))
-    ws[f"A{mean_row}"].alignment = _LFT
-    ws[f"C{mean_row}"].protection = _UNLOCKED
-    _full_border(ws, mean_row, 1, mean_row, 6)
-
     # ── Footer / Signature rows ───────────────────────────────────────────────
-    # Each signatory gets: (1) full-width name row  (2) split ID | Sig | Date row
-    ia_name = mean_row + 2
-    ia_sig  = ia_name + 1
-    ev_name = ia_sig  + 1
-    ev_sig  = ev_name + 1
-    cm_name = ev_sig  + 1
-    cm_sig  = cm_name + 1
+    last     = 14 + len(candidates)
+    sig1_row = last + 2
+    sig2_row = last + 3
+    sig3_row = last + 4
 
-    # Name rows — full width
-    for r, label in (
-        (ia_name, "1. Name of Internal Assessor:  "),
-        (ev_name, "2. Name of External Verifier:  "),
-        (cm_name, "3. Name of Assessment Center Manager/Officer:  "),
-    ):
-        ws.row_dimensions[r].height = 20.0
-        ws.merge_cells(f"A{r}:F{r}")
-        ws[f"A{r}"].value     = _rich((True, label), (False, _dots(50)))
-        ws[f"A{r}"].alignment = _LFT
-        _full_border(ws, r, 1, r, 6)
-
-    # Internal Assessor & External Verifier: A:D | E | F
-    for r, label in (
-        (ia_sig, "Internal Assessor Reg. Code/National ID. No.: "),
-        (ev_sig, "External Verifier Reg. Code/National ID. No.: "),
-    ):
+    for r in (last + 1, sig1_row, sig2_row, sig3_row):
         ws.row_dimensions[r].height = 22.0
-        ws.merge_cells(f"A{r}:D{r}")
-        ws[f"A{r}"].value     = _rich((True, label), (False, _dots(20)))
-        ws[f"A{r}"].alignment = _LFT
-        ws[f"E{r}"].value     = _rich((True, "Signature:  "), (False, _dots(20)))
-        ws[f"E{r}"].alignment = _LFT
-        ws[f"F{r}"].value     = _rich((True, "Date:  "), (False, _dots(15)))
-        ws[f"F{r}"].alignment = _LFT
-        _full_border(ws, r, 1, r, 6)
 
-    # Centre Manager last row: A:C | D | E:F
-    ws.row_dimensions[cm_sig].height = 22.0
-    ws.merge_cells(f"A{cm_sig}:C{cm_sig}")
-    ws.merge_cells(f"E{cm_sig}:F{cm_sig}")
-    ws[f"A{cm_sig}"].value     = _rich((True, "Signature: "),           (False, _dots(20)))
-    ws[f"A{cm_sig}"].alignment = _LFT
-    ws[f"D{cm_sig}"].value     = _rich((True, "Date:  "),               (False, _dots(15)))
-    ws[f"D{cm_sig}"].alignment = _LFT
-    ws[f"E{cm_sig}"].value     = _rich((True, "Institutional Stamp: "), (False, _dots(20)))
-    ws[f"E{cm_sig}"].alignment = _LFT
-    _full_border(ws, cm_sig, 1, cm_sig, 6)
+    ws.merge_cells(f"A{sig1_row}:F{sig1_row}")
+    ws[f"A{sig1_row}"].value = _rich(
+        (True,  "Internal Assessor Reg. Code/National ID. No.: "),
+        (False, _dots(20)),
+        (True,  "  Signature: "),
+        (False, _dots(20)),
+        (True,  "  Date: "),
+        (False, _dots(15)),
+    )
+    ws[f"A{sig1_row}"].alignment = _LFT
+    _full_border(ws, sig1_row, 1, sig1_row, 6)
 
-    # ── Print settings ────────────────────────────────────────────────────────
-    ws.print_area = f"A1:F{cm_sig}"
+    ws.merge_cells(f"A{sig2_row}:F{sig2_row}")
+    ws[f"A{sig2_row}"].value = _rich(
+        (True,  "External Verifier Reg. Code/National ID. No.: "),
+        (False, _dots(20)),
+        (True,  "  Signature: "),
+        (False, _dots(20)),
+        (True,  "  Date: "),
+        (False, _dots(15)),
+    )
+    ws[f"A{sig2_row}"].alignment = _LFT
+    _full_border(ws, sig2_row, 1, sig2_row, 6)
+
+    ws.merge_cells(f"A{sig3_row}:F{sig3_row}")
+    ws[f"A{sig3_row}"].value = _rich(
+        (True,  "Signature: "),
+        (False, _dots(25)),
+        (True,  "  Date: "),
+        (False, _dots(20)),
+        (True,  "  Institutional Stamp: "),
+        (False, _dots(25)),
+    )
+    ws[f"A{sig3_row}"].alignment = _LFT
+    _full_border(ws, sig3_row, 1, sig3_row, 6)
+
+    # ── Print settings (no sheet protection — meant to be filled in) ───────────
+    ws.print_area = f"A1:F{sig3_row}"
     ws.page_setup.paperSize   = 9           # A4
     ws.page_setup.orientation = "portrait"
     ws.page_setup.fitToWidth  = 1
@@ -294,11 +305,7 @@ def build_summative_sheet(ws, data: dict, unit: dict, logo_path: str = None):
     ws.oddFooter.center.text = "Page &P of &N"
     ws.oddFooter.center.font = _FONT
     ws.oddFooter.center.size = 11
-    ws.print_title_rows = "11:11"
-    ws.protection.sheet               = True
-    ws.protection.password            = "2026"
-    ws.protection.selectLockedCells   = False
-    ws.protection.selectUnlockedCells = False
+    ws.print_title_rows = "14:14"
 
 
 # ── Public entry point ────────────────────────────────────────────────────────

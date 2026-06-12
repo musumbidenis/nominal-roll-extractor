@@ -5,23 +5,27 @@ summative_word.py
 Word (.docx) rendition of the TVET CDACC Summative Assessment Moderated
 Practical Marks Sheet — one document per unit of competency.
 
-Formatting follows "Summative Word Sample.docx" exactly: A4 landscape, the
-logo + headings, a borderless 2-column info grid (Plain Table 4), the
-grey-headed candidate table (Table Grid), a "Mean Deviation" line, and a
-borderless signatory block (Plain Table 4).  The styles and page section are
-inherited from summative_word_template.docx (a stripped copy of that sample),
-so the look is identical.
+Formatting follows "Summative Word Sample.docx" exactly.  The styles, page
+section AND the signatory block come verbatim from summative_word_template.docx
+(a stripped copy of that sample that keeps only the signatory table), so the
+signatory block is byte-for-byte the user's own.
 
-The two side tables — the info grid and the signatory block — are wrapped in
-content controls locked against editing, so only the candidate list (where
-marks are entered) can be changed.
+Behaviour:
+  • A4 landscape; logo, org (13pt), CBA/SAMSP/1, blue title (12pt).
+  • Borderless 2-col info grid (Plain Table 4, no row shading).
+  • Grey-headed candidate table (Table Grid); its header row repeats on every
+    page while there are candidate rows.
+  • The "Mean Deviation" line and the signatory block are kept together on the
+    same page.
+  • The info grid and the signatory block are locked against editing (content
+    controls); only the candidate list stays editable.
 """
 
 import io
 import os
 
 from docx import Document
-from docx.enum.table import WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ROW_HEIGHT_RULE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -45,19 +49,6 @@ _HEADERS = ["S/N", "Candidate's\nRegistration Code", "Candidate's Name",
             "Moderated Marks\n(100%)"]
 # candidate-table column widths, in twips, taken verbatim from the sample
 _COL_TW  = [920, 3678, 3173, 2662, 2662, 2293]
-
-# signatory block — exact lines from the sample (all bold)
-_SIG_LINES = [
-    "1. Name of Internal Assessor:  " + "." * 200,
-    "Internal Assessor Reg. Code/National ID. No.: " + "." * 73 +
-        "\tSignature: " + "." * 25 + "  Date: " + "." * 35,
-    "2. Name of External Verifier:  " + "." * 200,
-    "External Verifier Reg. Code/National ID. No.: " + "." * 73 +
-        "\tSignature: " + "." * 25 + "  Date: " + "." * 35,
-    "3. Name of Assessment Center Manager/Officer:  " + "." * 185,
-    "Signature: " + "." * 25 + "  Date: " + "." * 35 +
-        " Institutional Stamp: " + "." * 110,
-]
 
 
 def _dots(n: int = 28) -> str:
@@ -118,9 +109,51 @@ def _fix_widths(table, twips_list):
             row.cells[ci].width = Twips(tw)
 
 
+def _no_band(table):
+    """Disable the Plain Table 4 row banding so the table shows no shading
+    (matches the sample's tblLook: noHBand=1, noVBand=1)."""
+    tbl_pr = table._tbl.tblPr
+    look = tbl_pr.find(qn("w:tblLook"))
+    if look is None:
+        look = OxmlElement("w:tblLook")
+        tbl_pr.append(look)
+    for attr, val in (("val", "06A0"), ("firstRow", "1"), ("lastRow", "0"),
+                      ("firstColumn", "1"), ("lastColumn", "0"),
+                      ("noHBand", "1"), ("noVBand", "1")):
+        look.set(qn("w:" + attr), val)
+
+
+def _repeat_header(table):
+    """Mark row 0 as a table header row so it repeats on every page."""
+    tr_pr = table.rows[0]._tr.get_or_add_trPr()
+    if tr_pr.find(qn("w:tblHeader")) is None:
+        th = OxmlElement("w:tblHeader")
+        th.set(qn("w:val"), "true")
+        tr_pr.append(th)
+
+
+def _keep_next(paragraph):
+    pPr = paragraph._p.get_or_add_pPr()
+    if pPr.find(qn("w:keepNext")) is None:
+        pPr.append(OxmlElement("w:keepNext"))
+
+
+def _keep_table_together(table):
+    """No row splits across a page, and every row keeps with the next, so the
+    whole table stays on one page."""
+    rows = table.rows
+    for i, row in enumerate(rows):
+        tr_pr = row._tr.get_or_add_trPr()
+        if tr_pr.find(qn("w:cantSplit")) is None:
+            tr_pr.append(OxmlElement("w:cantSplit"))
+        if i < len(rows) - 1:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    _keep_next(p)
+
+
 def _lock_table(table, sdt_id: int):
-    """Wrap a table in a content control locked against content edits, so the
-    table can't be modified while the rest of the document stays editable."""
+    """Wrap a table in a content control locked against content edits."""
     tbl = table._tbl
     parent = tbl.getparent()
     idx = parent.index(tbl)
@@ -155,6 +188,9 @@ def build_summative_doc(doc, data: dict, unit: dict):
         lvl = f"Level {lvl}"
     course_full = f"{course_name}  {lvl}".strip() if lvl else course_name
 
+    # The signatory block is the template's only table (verbatim from sample).
+    sig = doc.tables[0]
+
     # ── Logo (centred) ────────────────────────────────────────────────────────
     if os.path.exists(_CDACC_LOGO):
         p = doc.add_paragraph()
@@ -168,7 +204,7 @@ def build_summative_doc(doc, data: dict, unit: dict):
     _para(doc, [(True, _TITLE)], size=12, align=WD_ALIGN_PARAGRAPH.CENTER, color=_BLUE)
     doc.add_paragraph()
 
-    # ── Info grid (Plain Table 4, borderless, full width) ─────────────────────
+    # ── Info grid (Plain Table 4, no shading, full width) ─────────────────────
     info = doc.add_table(rows=4, cols=2, style="Plain Table 4")
     rows = [
         (("Assessment Center Code:  ",     centre_code or _dots()),
@@ -185,8 +221,9 @@ def build_summative_doc(doc, data: dict, unit: dict):
         _cell(info.rows[r].cells[1], [(True, right[0]), (False, right[1])])
         _row_height(info.rows[r], 0.43)
     _fix_widths(info, [7699, 7699])
+    _no_band(info)
 
-    # ── Candidate table (Table Grid, grey header) ─────────────────────────────
+    # ── Candidate table (Table Grid, grey header that repeats per page) ───────
     table = doc.add_table(rows=1 + len(candidates), cols=6, style="Table Grid")
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
 
@@ -205,23 +242,23 @@ def build_summative_doc(doc, data: dict, unit: dict):
         _row_height(table.rows[i], 0.25)
 
     _fix_widths(table, _COL_TW)
+    _repeat_header(table)
 
-    # ── Mean Deviation line (with the sample's surrounding spacing) ───────────
+    # ── Mean Deviation line (kept together with the signatory block) ──────────
     for _ in range(3):
         doc.add_paragraph()
-    _para(doc, [(True, "Mean Deviation:  ")], size=11)
-    for _ in range(3):
-        doc.add_paragraph()
+    keep = [_para(doc, [(True, "Mean Deviation:  ")], size=11)]
+    keep += [doc.add_paragraph() for _ in range(3)]
 
-    # ── Signatory block (Plain Table 4, borderless, full width) ───────────────
-    sig = doc.add_table(rows=len(_SIG_LINES), cols=1, style="Plain Table 4")
-    for r, line in enumerate(_SIG_LINES):
-        _cell(sig.rows[r].cells[0], [(True, line)])
-    _fix_widths(sig, [15398])
+    # ── Place the signatory block here (verbatim from the template) ───────────
+    trailing = doc.add_paragraph()
+    trailing._p.addprevious(sig._tbl)
 
-    doc.add_paragraph()   # trailing paragraph (matches the sample)
+    for p in keep:
+        _keep_next(p)
+    _keep_table_together(sig)
 
-    # ── Lock the two side tables; leave the candidate list editable ───────────
+    # ── Lock the two side tables; the candidate list stays editable ───────────
     _lock_table(info, 101)
     _lock_table(sig, 102)
 

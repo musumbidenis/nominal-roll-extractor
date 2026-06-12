@@ -17,7 +17,7 @@ import re
 
 from docx import Document
 from docx.enum.section import WD_ORIENT
-from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -59,6 +59,13 @@ def _para(doc_or_cell, parts, size=11, align=WD_ALIGN_PARAGRAPH.LEFT,
     p.paragraph_format.space_after  = Pt(space_after)
     _runs(p, parts, size=size, color=color)
     return p
+
+
+def _row_height(row, pt: float):
+    """Match the template's row heights. AT_LEAST (not EXACT) so wrapped
+    content — a long name in Word's narrower columns — is never clipped."""
+    row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+    row.height = Pt(pt)
 
 
 def _shade(cell, fill_hex: str):
@@ -163,6 +170,7 @@ def build_summative_doc(doc, data: dict, unit: dict):
     for r, (left, right) in enumerate(info_rows):
         _cell(info.rows[r].cells[0], [(True, left[0]), (False, left[1])])
         _cell(info.rows[r].cells[1], [(True, right[0]), (False, right[1])])
+        _row_height(info.rows[r], 20)   # template rows 7-10
 
     # ── Name / mean-deviation lines ───────────────────────────────────────────
     _para(doc, [(True, "1. Name of Internal Assessor:  "), (False, _dots(40)),
@@ -186,6 +194,7 @@ def build_summative_doc(doc, data: dict, unit: dict):
     for c, label in enumerate(headers):
         _cell(hdr[c], [(False, label)], size=11, bold_all=True,
               align=WD_ALIGN_PARAGRAPH.CENTER, shade=_GREY)
+    _row_height(table.rows[0], 42)      # template header row 14
 
     for i, cand in enumerate(candidates, 1):
         cells = table.rows[i].cells
@@ -194,6 +203,7 @@ def build_summative_doc(doc, data: dict, unit: dict):
         _cell(cells[2], [(False, cand["name"])])
         for c in (3, 4, 5):
             _cell(cells[c], [(False, "")], align=WD_ALIGN_PARAGRAPH.CENTER)
+        _row_height(table.rows[i], 18)  # template data rows 15+
 
     for row in table.rows:
         for c, w in enumerate(widths):

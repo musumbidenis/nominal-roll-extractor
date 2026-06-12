@@ -21,7 +21,6 @@ import streamlit as st
 from extract_nominal import extract
 from marksheet_excel import build_marksheet_per_unit
 from registration_excel import build_class_forms
-from summative_excel import build_summative_per_unit
 from summative_word import build_summative_per_unit_docx
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -406,17 +405,18 @@ def _gen_zip(data: dict, logo_path: str = None) -> bytes:
     return buf.getvalue()
 
 
-def _gen_summative_zip(data: dict, fmt: str = "xlsx") -> tuple[bytes, int]:
-    """ZIP of summative moderated-practical marks sheets, one per unit, split
-    into Assessment/Re-Assessment folders like the marksheet ZIP.  The sheet
-    carries the fixed CDACC logo, so no school logo is threaded.  `fmt` is
-    "xlsx" (Excel) or "docx" (Word).  Returns (zip_bytes, n_units)."""
-    builder = build_summative_per_unit_docx if fmt == "docx" else build_summative_per_unit
+def _gen_summative_zip(data: dict) -> tuple[bytes, int]:
+    """ZIP of summative moderated-practical marks sheets (Word .docx), one per
+    unit, split into Assessment/Re-Assessment folders like the marksheet ZIP.
+    The sheet carries the fixed CDACC logo, so no school logo is threaded.
+    Returns (zip_bytes, n_units)."""
     planned = [
         (f'{_folder_for(unit)}/'
          f'{_safe_folder(unit.get("course_name") or "Unknown Course")}',
          filename, file_bytes)
-        for unit, (filename, file_bytes) in zip(data["units"], builder(data))
+        for unit, (filename, file_bytes) in zip(
+            data["units"], build_summative_per_unit_docx(data)
+        )
     ]
 
     totals = Counter(f"{path}/{name}".lower() for path, name, _ in planned)
@@ -712,15 +712,9 @@ elif _view == _VIEW_SUMMATIVE:
     st.markdown('<p class="sec-lbl">Summative Marksheets</p>', unsafe_allow_html=True)
     st.caption(
         "Tick the units you want, then download. CDACC Summative Assessment "
-        "Moderated Practical Marks Sheet — one file per unit, carrying the "
-        "CDACC logo."
+        "Moderated Practical Marks Sheet (Word .docx) — one file per unit, "
+        "carrying the CDACC logo."
     )
-
-    _fmt_label = st.radio(
-        "Format", ["Excel (.xlsx)", "Word (.docx)"],
-        horizontal=True, key="summ_fmt",
-    )
-    _fmt = "docx" if _fmt_label.startswith("Word") else "xlsx"
 
     units = data["units"]
     with st.container(border=True):
@@ -745,11 +739,11 @@ elif _view == _VIEW_SUMMATIVE:
         st.info("Tick at least one unit above to generate summative marksheets.",
                 icon="📋")
     else:
-        sig = (tuple(selected), _fmt)
+        sig = tuple(selected)
         if st.session_state.get("_cache_summ_sig") != sig:
             with st.spinner("Building summative sheets…"):
                 st.session_state["_cache_summ_zip"] = _gen_summative_zip(
-                    _subset_units(data, selected), fmt=_fmt)
+                    _subset_units(data, selected))
             st.session_state["_cache_summ_sig"] = sig
         _szip, _nsumm = st.session_state["_cache_summ_zip"]
 
@@ -757,16 +751,13 @@ elif _view == _VIEW_SUMMATIVE:
             st.markdown('<p class="export-title">📑 Summative — ZIP</p>',
                         unsafe_allow_html=True)
             st.caption(
-                f"{_nsumm} {'Word' if _fmt == 'docx' else 'Excel'} "
-                f"file{'s' if _nsumm != 1 else ''} for "
+                f"{_nsumm} Word file{'s' if _nsumm != 1 else ''} for "
                 f"{len(selected)} selected unit{'s' if len(selected) != 1 else ''} "
                 "— split into Assessment / Re-Assessment folders."
             )
             st.markdown('<p class="fn-label">Save as</p>', unsafe_allow_html=True)
-            _summ_default = (f"{stem_default}_summative_word" if _fmt == "docx"
-                             else f"{stem_default}_summative")
             summ_fn = st.text_input(
-                "Summative filename", value=_summ_default,
+                "Summative filename", value=f"{stem_default}_summative",
                 key="fn_summ", label_visibility="collapsed",
             )
             st.download_button(

@@ -162,6 +162,23 @@ def _keep_table_together(table):
                     _keep_next(p)
 
 
+def _add_page_number(doc):
+    """Centred, bold page number in the footer of every page."""
+    footer = doc.sections[0].footer
+    footer.is_linked_to_previous = False
+    p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    p.text = ""
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run()
+    _style_run(run, size=12, bold=True)
+    begin = OxmlElement("w:fldChar"); begin.set(qn("w:fldCharType"), "begin")
+    instr = OxmlElement("w:instrText")
+    instr.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    instr.text = " PAGE "
+    end = OxmlElement("w:fldChar"); end.set(qn("w:fldCharType"), "end")
+    run._r.append(begin); run._r.append(instr); run._r.append(end)
+
+
 def _lock_table(table, sdt_id: int, message: str):
     """Wrap a table in a content control locked against content edits.  The
     message becomes the control's title/tag, shown as a label when the user
@@ -280,6 +297,9 @@ def build_summative_doc(doc, data: dict, unit: dict):
     # ── Lock the two side tables; the candidate list stays editable ───────────
     _lock_table(info, 101, _LOCK_MSG)
     _lock_table(sig, 102, _LOCK_MSG)
+
+    # ── Centred bold page number in the footer ────────────────────────────────
+    _add_page_number(doc)
 
 
 # ── Public entry point ────────────────────────────────────────────────────────

@@ -53,12 +53,15 @@ _COL_TW  = [920, 3678, 3173, 2662, 2662, 2293]
 # Course/Qualification Code, Unit Code and Date of Assessment are reproduced
 # verbatim from the sample: blank, filled with the ellipsis (…) leader it uses.
 _ELL          = "…"
-_COURSE_CODE  = "Course/Qualification Code: " + _ELL * 22 + "."
-_UNIT_CODE    = "Unit Code: " + _ELL * 29 + "."
-_DATE_ASSESS  = "Date of Assessment:  From " + _ELL * 10 + "." + "  to  " + _ELL * 10
+# (bold label, non-bold ellipsis fill) run parts — labels and "to" are bold.
+_COURSE_CODE  = [(True, "Course/Qualification Code: "), (False, _ELL * 22 + ".")]
+_UNIT_CODE    = [(True, "Unit Code: "), (False, _ELL * 29 + ".")]
+_DATE_ASSESS  = [(True, "Date of Assessment:  From "), (False, _ELL * 10 + "."),
+                 (True, "  to  "), (False, _ELL * 10)]
 
 # Shown as the locked content control's label when a user clicks the area.
-_LOCK_MSG = "Locked — you can add this data by hand after printing."
+_LOCK_MSG   = "Locked — you can add this data by hand after printing."
+_HEADER_MSG = "Locked."
 
 
 def _dots(n: int = 28) -> str:
@@ -162,31 +165,41 @@ def _keep_table_together(table):
                     _keep_next(p)
 
 
+def _add_field(paragraph, instr, size=12, bold=True):
+    """Append a Word field (e.g. PAGE / NUMPAGES) as a styled run."""
+    run = paragraph.add_run()
+    _style_run(run, size=size, bold=bold)
+    begin = OxmlElement("w:fldChar"); begin.set(qn("w:fldCharType"), "begin")
+    it = OxmlElement("w:instrText")
+    it.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    it.text = instr
+    end = OxmlElement("w:fldChar"); end.set(qn("w:fldCharType"), "end")
+    run._r.append(begin); run._r.append(it); run._r.append(end)
+
+
 def _add_page_number(doc):
-    """Centred, bold page number in the footer of every page."""
+    """Centred, bold 'Page X of Y' in the footer of every page."""
     footer = doc.sections[0].footer
     footer.is_linked_to_previous = False
     p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
     p.text = ""
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run()
-    _style_run(run, size=12, bold=True)
-    begin = OxmlElement("w:fldChar"); begin.set(qn("w:fldCharType"), "begin")
-    instr = OxmlElement("w:instrText")
-    instr.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-    instr.text = " PAGE "
-    end = OxmlElement("w:fldChar"); end.set(qn("w:fldCharType"), "end")
-    run._r.append(begin); run._r.append(instr); run._r.append(end)
+    _style_run(p.add_run("Page "), size=12, bold=True)
+    _add_field(p, " PAGE ")
+    _style_run(p.add_run(" of "), size=12, bold=True)
+    _add_field(p, " NUMPAGES ")
 
 
-def _lock_table(table, sdt_id: int, message: str):
-    """Wrap a table in a content control locked against content edits.  The
-    message becomes the control's title/tag, shown as a label when the user
-    clicks the locked area (so they're told they can fill it in after print)."""
-    tbl = table._tbl
-    parent = tbl.getparent()
-    idx = parent.index(tbl)
-    parent.remove(tbl)
+def _lock_elements(elements, sdt_id: int, message: str):
+    """Wrap a run of consecutive block elements (paragraphs and/or tables) in a
+    content control locked against content edits.  The message becomes the
+    control's title/tag, shown as a label when the user clicks the locked area."""
+    if not elements:
+        return
+    parent = elements[0].getparent()
+    idx = parent.index(elements[0])
+    for el in elements:
+        parent.remove(el)
 
     sdt = OxmlElement("w:sdt")
     sdt_pr = OxmlElement("w:sdtPr")
@@ -198,9 +211,15 @@ def _lock_table(table, sdt_id: int, message: str):
     sdt_pr.append(lock)
     sdt.append(sdt_pr)
     sdt_content = OxmlElement("w:sdtContent")
-    sdt_content.append(tbl)
+    for el in elements:
+        sdt_content.append(el)
     sdt.append(sdt_content)
     parent.insert(idx, sdt)
+
+
+def _lock_table(table, sdt_id: int, message: str):
+    """Lock a single table against content edits (see _lock_elements)."""
+    _lock_elements([table._tbl], sdt_id, message)
 
 
 # ── Document builder ──────────────────────────────────────────────────────────
@@ -223,18 +242,20 @@ def build_summative_doc(doc, data: dict, unit: dict):
     # The signatory block is the template's only table (verbatim from sample).
     sig = doc.tables[0]
 
-    # ── Logo (centred) ────────────────────────────────────────────────────────
+    # ── Logo + headings (locked as one block below) ───────────────────────────
+    header = []
     if os.path.exists(_CDACC_LOGO):
         p = doc.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         p.paragraph_format.space_after = Pt(2)
         p.add_run().add_picture(_CDACC_LOGO, width=Inches(0.96), height=Inches(0.9))
+        header.append(p)
 
-    # ── Headings ──────────────────────────────────────────────────────────────
-    _para(doc, [(True, _ORG)],   size=13, align=WD_ALIGN_PARAGRAPH.CENTER)
-    _para(doc, [(True, "CBA/SAMSP/1")], size=11)
-    _para(doc, [(True, _TITLE)], size=12, align=WD_ALIGN_PARAGRAPH.CENTER, color=_BLUE)
-    doc.add_paragraph()
+    header.append(_para(doc, [(True, _ORG)],   size=13, align=WD_ALIGN_PARAGRAPH.CENTER))
+    header.append(_para(doc, [(True, "CBA/SAMSP/1")], size=11))
+    header.append(_para(doc, [(True, _TITLE)], size=12,
+                        align=WD_ALIGN_PARAGRAPH.CENTER, color=_BLUE))
+    doc.add_paragraph()   # editable spacer between the locked header and the grid
 
     # ── Info grid (Plain Table 4, no shading, full width) ─────────────────────
     # Left column: Code / Code / Code / Date — the latter three taken verbatim
@@ -242,9 +263,9 @@ def build_summative_doc(doc, data: dict, unit: dict):
     info = doc.add_table(rows=4, cols=2, style="Plain Table 4")
     left_cells = [
         [(True, "Assessment Center Code:  "), (False, centre_code or _dots())],
-        [(False, _COURSE_CODE)],
-        [(False, _UNIT_CODE)],
-        [(False, _DATE_ASSESS)],
+        _COURSE_CODE,
+        _UNIT_CODE,
+        _DATE_ASSESS,
     ]
     right_cells = [
         [(True, "Assessment Center Name:  "),     (False, centre_name or _dots())],
@@ -294,7 +315,8 @@ def build_summative_doc(doc, data: dict, unit: dict):
         _keep_next(p)
     _keep_table_together(sig)
 
-    # ── Lock the two side tables; the candidate list stays editable ───────────
+    # ── Lock the header + the two side tables; the candidate list stays editable
+    _lock_elements([p._p for p in header], 100, _HEADER_MSG)
     _lock_table(info, 101, _LOCK_MSG)
     _lock_table(sig, 102, _LOCK_MSG)
 

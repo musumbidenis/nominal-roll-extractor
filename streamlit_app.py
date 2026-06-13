@@ -711,7 +711,7 @@ if _view == _VIEW_FORMATIVE:
 elif _view == _VIEW_SUMMATIVE:
     st.markdown('<p class="sec-lbl">Summative Marksheets</p>', unsafe_allow_html=True)
     st.caption(
-        "Tick the units you want, then download. CDACC Summative Assessment "
+        "Tick the units you want, then click Build. CDACC Summative Assessment "
         "Moderated Practical Marks Sheet (Word .docx) — one file per unit, "
         "carrying the CDACC logo."
     )
@@ -736,38 +736,45 @@ elif _view == _VIEW_SUMMATIVE:
                 selected.append(_i)
 
     if not selected:
-        st.info("Tick at least one unit above to generate summative marksheets.",
-                icon="📋")
+        st.info("Tick at least one unit above, then click Build.", icon="📋")
     else:
         sig = tuple(selected)
-        if st.session_state.get("_cache_summ_sig") != sig:
+        # Build only when the user clicks — no auto-build while they're selecting.
+        if st.button(
+            f"🔨  Build {len(selected)} summative marksheet"
+            f"{'s' if len(selected) != 1 else ''}",
+            type="primary", width="stretch",
+        ):
             with st.spinner("Building summative sheets…"):
                 st.session_state["_cache_summ_zip"] = _gen_summative_zip(
                     _subset_units(data, selected))
             st.session_state["_cache_summ_sig"] = sig
-        _szip, _nsumm = st.session_state["_cache_summ_zip"]
 
-        with st.container(border=True):
-            st.markdown('<p class="export-title">📑 Summative — ZIP</p>',
-                        unsafe_allow_html=True)
-            st.caption(
-                f"{_nsumm} Word file{'s' if _nsumm != 1 else ''} for "
-                f"{len(selected)} selected unit{'s' if len(selected) != 1 else ''} "
-                "— split into Assessment / Re-Assessment folders."
-            )
-            st.markdown('<p class="fn-label">Save as</p>', unsafe_allow_html=True)
-            summ_fn = st.text_input(
-                "Summative filename", value=f"{stem_default}_summative",
-                key="fn_summ", label_visibility="collapsed",
-            )
-            st.download_button(
-                label="⬇  Download Summative",
-                data=_szip,
-                file_name=f"{summ_fn.strip() or stem_default}.zip",
-                mime="application/zip",
-                width="stretch",
-                type="primary",
-            )
+        cached = st.session_state.get("_cache_summ_zip")
+        if cached is not None:
+            _szip, _nsumm = cached
+            if st.session_state.get("_cache_summ_sig") != sig:
+                st.caption("⚠  Selection changed — click Build to refresh the download.")
+            with st.container(border=True):
+                st.markdown('<p class="export-title">📑 Summative — ZIP</p>',
+                            unsafe_allow_html=True)
+                st.caption(
+                    f"{_nsumm} Word file{'s' if _nsumm != 1 else ''} built "
+                    "— split into Assessment / Re-Assessment folders."
+                )
+                st.markdown('<p class="fn-label">Save as</p>', unsafe_allow_html=True)
+                summ_fn = st.text_input(
+                    "Summative filename", value=f"{stem_default}_summative",
+                    key="fn_summ", label_visibility="collapsed",
+                )
+                st.download_button(
+                    label="⬇  Download Summative",
+                    data=_szip,
+                    file_name=f"{summ_fn.strip() or stem_default}.zip",
+                    mime="application/zip",
+                    width="stretch",
+                    type="primary",
+                )
 
 # ── Class Forms ───────────────────────────────────────────────────────────────
 else:

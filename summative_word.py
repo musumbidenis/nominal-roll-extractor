@@ -54,8 +54,8 @@ _COL_TW  = [920, 3678, 3173, 2662, 2662, 2293]
 # verbatim from the sample: blank, filled with the ellipsis (…) leader it uses.
 _ELL          = "…"
 # (bold label, non-bold ellipsis fill) run parts — labels and "to" are bold.
-_COURSE_CODE  = [(True, "Course/Qualification Code: "), (False, _ELL * 22 + ".")]
-_UNIT_CODE    = [(True, "Unit Code: "), (False, _ELL * 29 + ".")]
+_COURSE_CODE  = [(True, "Course/Qualification Code: "), (False, _ELL * 20 + ".")]
+_UNIT_CODE    = [(True, "Unit Code: "), (False, _ELL * 27 + ".")]
 _DATE_ASSESS  = [(True, "Date of Assessment:  From "), (False, _ELL * 10 + "."),
                  (True, "  to  "), (False, _ELL * 10)]
 

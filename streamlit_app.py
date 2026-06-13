@@ -686,7 +686,7 @@ if _view == _VIEW_FORMATIVE:
         )
         _zk = "_cache_zip"
         if _zk not in st.session_state:
-            with st.spinner("Building marksheets…"):
+            with st.spinner("Generating marksheets…"):
                 st.session_state[_zk] = _gen_zip(data, logo_path)
 
         st.caption(
@@ -711,7 +711,7 @@ if _view == _VIEW_FORMATIVE:
 elif _view == _VIEW_SUMMATIVE:
     st.markdown('<p class="sec-lbl">Summative Marksheets</p>', unsafe_allow_html=True)
     st.caption(
-        "Tick the units you want, then click Build. CDACC Summative Assessment "
+        "Tick the units you want, then click Generate. CDACC Summative Assessment "
         "Moderated Practical Marks Sheet (Word .docx) — one file per unit, "
         "carrying the CDACC logo."
     )
@@ -736,16 +736,16 @@ elif _view == _VIEW_SUMMATIVE:
                 selected.append(_i)
 
     if not selected:
-        st.info("Tick at least one unit above, then click Build.", icon="📋")
+        st.info("Tick at least one unit above, then click Generate.", icon="📋")
     else:
         sig = tuple(selected)
-        # Build only when the user clicks — no auto-build while they're selecting.
+        # Generate only when the user clicks — no auto-build while selecting.
         if st.button(
-            f"🔨  Build {len(selected)} summative marksheet"
+            f"🔨  Generate {len(selected)} summative marksheet"
             f"{'s' if len(selected) != 1 else ''}",
             type="primary", width="stretch",
         ):
-            with st.spinner("Building summative sheets…"):
+            with st.spinner("Generating summative sheets…"):
                 st.session_state["_cache_summ_zip"] = _gen_summative_zip(
                     _subset_units(data, selected))
             st.session_state["_cache_summ_sig"] = sig
@@ -754,12 +754,12 @@ elif _view == _VIEW_SUMMATIVE:
         if cached is not None:
             _szip, _nsumm = cached
             if st.session_state.get("_cache_summ_sig") != sig:
-                st.caption("⚠  Selection changed — click Build to refresh the download.")
+                st.caption("⚠  Selection changed — click Generate to refresh the download.")
             with st.container(border=True):
                 st.markdown('<p class="export-title">📑 Summative — ZIP</p>',
                             unsafe_allow_html=True)
                 st.caption(
-                    f"{_nsumm} Word file{'s' if _nsumm != 1 else ''} built "
+                    f"{_nsumm} Word file{'s' if _nsumm != 1 else ''} generated "
                     "— split into Assessment / Re-Assessment folders."
                 )
                 st.markdown('<p class="fn-label">Save as</p>', unsafe_allow_html=True)
@@ -796,7 +796,7 @@ else:
         )
         _ck = "_cache_classzip"
         if _ck not in st.session_state:
-            with st.spinner("Building class forms…"):
+            with st.spinner("Generating class forms…"):
                 st.session_state[_ck] = _gen_class_zip(data, logo_path)
         _czip, _ncls = st.session_state[_ck]
 

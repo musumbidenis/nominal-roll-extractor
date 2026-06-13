@@ -660,7 +660,8 @@ st.dataframe(
 _VIEW_FORMATIVE = "📦 Formative Marksheets"
 _VIEW_SUMMATIVE = "📑 Summative Marksheets"
 _VIEW_CLASSES   = "🏫 Class Forms"
-_VIEWS          = [_VIEW_FORMATIVE, _VIEW_SUMMATIVE, _VIEW_CLASSES]
+# Class Forms is hidden from the UI for now (logic kept for later use).
+_VIEWS          = [_VIEW_FORMATIVE, _VIEW_SUMMATIVE]
 
 with st.sidebar:
     st.markdown('<p class="sec-lbl">Views</p>', unsafe_allow_html=True)
@@ -776,8 +777,8 @@ elif _view == _VIEW_SUMMATIVE:
                     type="primary",
                 )
 
-# ── Class Forms ───────────────────────────────────────────────────────────────
-else:
+# ── Class Forms (hidden from the sidebar; kept for later use) ─────────────────
+elif _view == _VIEW_CLASSES:
     logo_path = _logo_picker_ui()
 
     st.markdown("<br>", unsafe_allow_html=True)

@@ -57,7 +57,7 @@ _ELL          = "…"
 _COURSE_CODE  = [(True, "Course/Qualification Code: "), (False, _ELL * 20 + ".")]
 _UNIT_CODE    = [(True, "Unit Code: "), (False, _ELL * 27 + ".")]
 _DATE_ASSESS  = [(True, "Date of Assessment:  From "), (False, _ELL * 10 + "."),
-                 (True, "  to  "), (False, _ELL * 10)]
+                 (True, "  to  "), (False, _ELL * 6)]
 
 # Shown as the locked content control's label when a user clicks the area.
 _LOCK_MSG   = "Locked — you can add this data by hand after printing."
